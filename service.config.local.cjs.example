@@ -1,0 +1,42 @@
+// Copy this file to `service.config.local.cjs` and edit for THIS machine.
+// `service.config.local.cjs` is gitignored — your secrets and machine-
+// specific overrides live here and are never committed.
+//
+// At startup, `src/env.ts` loads this file (if present) and writes every
+// key/value pair under `env` into `process.env`. Already-set environment
+// variables are NOT overwritten — an inline `KEY=val node ...` invocation
+// still wins.
+//
+// Keys here OVERRIDE the defaults in `service.config.cjs`.
+
+module.exports = {
+  env: {
+    // === Postgres ===
+    // Service-user password (NOT the postgres superuser). Set this to
+    // whatever you chose when running `npm run db:setup`.
+    PG_PASSWORD: 'change-me',
+
+    // === Anthropic (required for default backend) ===
+    // Get from console.anthropic.com → API keys.
+    ANTHROPIC_API_KEY: 'sk-ant-api03-...',
+
+    // === Exa (required for the search_web tool) ===
+    // Get from dashboard.exa.ai → Keys.
+    EXA_API_KEY: 'exa_...',
+
+    // === Mistral La Plateforme (optional — only needed when using
+    //     the 'mistral-online' backend) ===
+    // MISTRAL_API_KEY: '...',
+
+    // === vLLM (optional — only needed when using the 'mistral-local'
+    //     backend, which requires a running vLLM server on the
+    //     configured VLLM_BASE_URL) ===
+    // vLLM accepts any non-empty string as the API key.
+    // VLLM_API_KEY: 'EMPTY',
+
+    // === Per-machine overrides ===
+    // PORT: '3216',
+    // AGENT_DEFAULT_BACKEND: 'anthropic',
+    // DEV_BYPASS_AUTH: 'true',   // dev-only escape hatch for smoke tests
+  },
+};

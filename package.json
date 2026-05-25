@@ -1,0 +1,49 @@
+{
+  "name": "swirlock-agent-runtime",
+  "version": "0.1.0",
+  "description": "Swirlock Agent Runtime — a classic-pattern, tool-using LLM agent built on NestJS + Vercel AI SDK 6. Tenant-agnostic; consumed by chatbot UI, future commerce engine, future IDE plugins, future voice / robot surfaces.",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"*.md\"",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "typecheck": "tsc --noEmit",
+    "db:setup": "node scripts/setup-database.cjs",
+    "db:migrate": "node scripts/migrate.cjs"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.79",
+    "@ai-sdk/mistral": "^3.0.37",
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "@nestjs/common": "^11.1.19",
+    "@nestjs/core": "^11.1.19",
+    "@nestjs/platform-express": "^11.1.19",
+    "ai": "^6.0.191",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "exa-js": "^2.13.0",
+    "jose": "^6.2.3",
+    "kysely": "^0.29.2",
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "ws": "^8.20.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.21",
+    "@nestjs/schematics": "^11.1.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.18.1",
+    "prettier": "^3.8.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^6.0.3"
+  }
+}
