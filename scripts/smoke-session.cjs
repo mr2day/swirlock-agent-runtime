@@ -36,8 +36,10 @@ async function main() {
   const sessions = app.get(SessionService);
   const turns = app.get(TurnService);
 
+  const clientId = 'smoke-client';
   const userId = 'smoke-user';
   const session = await sessions.createSession({
+    clientId,
     userId,
     title: 'smoke session',
     systemPrompt:
@@ -50,6 +52,7 @@ async function main() {
     console.log(`\n[smoke] >>> user: ${message}`);
     const stream = turns.runTurn({
       sessionId: session.id,
+      clientId,
       userId,
       userMessage: message,
       maxSteps: 4,
@@ -81,7 +84,7 @@ async function main() {
   await runTurn('And what was the answer again? Just the number.');
 
   // Read back history.
-  const messages = await sessions.getMessages(session.id, userId);
+  const messages = await sessions.getMessages(session.id, clientId, userId);
   console.log('\n[smoke] persisted messages:');
   for (const m of messages) {
     const contentDesc = Array.isArray(m.content)
@@ -92,7 +95,7 @@ async function main() {
     );
   }
 
-  const reread = await sessions.getSession(session.id, userId);
+  const reread = await sessions.getSession(session.id, clientId, userId);
   console.log(
     `\n[smoke] session token count after two turns: ${reread.totalTokenCount}`,
   );

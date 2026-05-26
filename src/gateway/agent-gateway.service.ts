@@ -102,6 +102,7 @@ export class AgentGatewayService implements OnApplicationShutdown {
 class Connection {
   private readonly logger = new Logger('Connection');
   private userId: string | null = null;
+  private clientId: string | null = null;
   private closed = false;
 
   constructor(
@@ -146,6 +147,7 @@ class Connection {
       try {
         const identity = await this.gateway.authService.verify(frame.token);
         this.userId = identity.userId;
+        this.clientId = identity.clientId;
         this.send({
           type: 'ready',
           inReplyTo: frame.id,
@@ -164,6 +166,19 @@ class Connection {
     }
 
     const userId = this.userId;
+    const clientId = this.clientId;
+    if (!clientId) {
+      // Belt-and-braces: userId was set on auth, clientId is set in
+      // the same branch, so this can't happen unless the auth path
+      // regresses. Fail loudly rather than silently scope to nothing.
+      this.send({
+        type: 'error',
+        inReplyTo: frame.id,
+        code: 'unauthenticated',
+        message: 'connection missing client_id after auth',
+      });
+      return;
+    }
 
     switch (frame.type) {
       case 'auth':
@@ -177,6 +192,7 @@ class Connection {
 
       case 'session.create': {
         const session = await this.gateway.sessionService.createSession({
+          clientId,
           userId,
           title: frame.title,
           systemPrompt: frame.systemPrompt,
@@ -192,6 +208,7 @@ class Connection {
 
       case 'session.list': {
         const sessions = await this.gateway.sessionService.listSessions(
+          clientId,
           userId,
           frame.limit,
         );
@@ -206,10 +223,12 @@ class Connection {
       case 'session.get': {
         const session = await this.gateway.sessionService.getSession(
           frame.sessionId,
+          clientId,
           userId,
         );
         const messages = await this.gateway.sessionService.getMessages(
           frame.sessionId,
+          clientId,
           userId,
         );
         this.send({
@@ -224,6 +243,7 @@ class Connection {
       case 'session.archive': {
         await this.gateway.sessionService.archiveSession(
           frame.sessionId,
+          clientId,
           userId,
         );
         this.send({
@@ -243,18 +263,20 @@ class Connection {
         return;
 
       case 'turn.submit': {
-        await this.runTurnStream(userId, frame);
+        await this.runTurnStream(clientId, userId, frame);
         return;
       }
     }
   }
 
   private async runTurnStream(
+    clientId: string,
     userId: string,
     frame: import('./protocol').ClientTurnSubmitFrame,
   ): Promise<void> {
     const events = this.gateway.turnService.runTurn({
       sessionId: frame.sessionId,
+      clientId,
       userId,
       userMessage: frame.message,
       backendOverride: frame.backend,

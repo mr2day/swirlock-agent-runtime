@@ -9,6 +9,7 @@ import type {
 
 export interface SessionRecord {
   id: string;
+  clientId: string;
   userId: string;
   title: string | null;
   systemPrompt: string | null;
@@ -32,6 +33,7 @@ export interface MessageRecord {
 }
 
 export interface CreateSessionInput {
+  clientId: string;
   userId: string;
   title?: string;
   systemPrompt?: string;
@@ -46,6 +48,7 @@ export class SessionService {
     const inserted = await this.database.db
       .insertInto('sessions')
       .values({
+        client_id: input.clientId,
         user_id: input.userId,
         title: input.title ?? null,
         system_prompt: input.systemPrompt ?? null,
@@ -57,11 +60,16 @@ export class SessionService {
     return this.toSessionRecord(inserted);
   }
 
-  async getSession(sessionId: string, userId: string): Promise<SessionRecord> {
+  async getSession(
+    sessionId: string,
+    clientId: string,
+    userId: string,
+  ): Promise<SessionRecord> {
     const row = await this.database.db
       .selectFrom('sessions')
       .selectAll()
       .where('id', '=', sessionId)
+      .where('client_id', '=', clientId)
       .where('user_id', '=', userId)
       .executeTakeFirst();
 
@@ -71,10 +79,15 @@ export class SessionService {
     return this.toSessionRecord(row);
   }
 
-  async listSessions(userId: string, limit = 50): Promise<SessionRecord[]> {
+  async listSessions(
+    clientId: string,
+    userId: string,
+    limit = 50,
+  ): Promise<SessionRecord[]> {
     const rows = await this.database.db
       .selectFrom('sessions')
       .selectAll()
+      .where('client_id', '=', clientId)
       .where('user_id', '=', userId)
       .where('status', '=', 'active')
       .orderBy('updated_at', 'desc')
@@ -85,10 +98,11 @@ export class SessionService {
 
   async getMessages(
     sessionId: string,
+    clientId: string,
     userId: string,
   ): Promise<MessageRecord[]> {
     // Verify ownership before reading messages.
-    await this.getSession(sessionId, userId);
+    await this.getSession(sessionId, clientId, userId);
 
     const rows = await this.database.db
       .selectFrom('messages')
@@ -100,8 +114,12 @@ export class SessionService {
     return rows.map((r) => this.toMessageRecord(r));
   }
 
-  async archiveSession(sessionId: string, userId: string): Promise<void> {
-    await this.getSession(sessionId, userId);
+  async archiveSession(
+    sessionId: string,
+    clientId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.getSession(sessionId, clientId, userId);
     await this.database.db
       .updateTable('sessions')
       .set({ status: 'archived', updated_at: new Date() })
@@ -111,6 +129,7 @@ export class SessionService {
 
   private toSessionRecord(row: {
     id: string;
+    client_id: string;
     user_id: string;
     title: string | null;
     system_prompt: string | null;
@@ -122,6 +141,7 @@ export class SessionService {
   }): SessionRecord {
     return {
       id: row.id,
+      clientId: row.client_id,
       userId: row.user_id,
       title: row.title,
       systemPrompt: row.system_prompt,

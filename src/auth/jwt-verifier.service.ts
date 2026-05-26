@@ -3,6 +3,11 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 
 export interface VerifiedIdentity {
   userId: string;
+  // OAuth client_id from the JWT — the app that holds this token.
+  // In multi-tenant terms this is the tenant. Sourced from the
+  // `client_id` claim (oidc-provider's standard JWT access-token
+  // claim), or `azp` as a fallback for confidential-client flows.
+  clientId: string;
   payload: JWTPayload;
 }
 
@@ -52,7 +57,8 @@ export class JwtVerifierService implements OnModuleInit {
     if (this.bypass) {
       return {
         userId: 'dev-user',
-        payload: { sub: 'dev-user', iss: 'dev-bypass' },
+        clientId: 'dev',
+        payload: { sub: 'dev-user', client_id: 'dev', iss: 'dev-bypass' },
       };
     }
     const { payload } = await jwtVerify(token, this.jwks, {
@@ -63,6 +69,18 @@ export class JwtVerifierService implements OnModuleInit {
     if (!sub) {
       throw new Error('JWT has no sub claim');
     }
-    return { userId: sub, payload };
+    // Prefer `client_id` (oidc-provider's standard access-token claim);
+    // fall back to `azp` (the OIDC "authorized party" claim, set when
+    // a confidential client is used). Reject the token if neither is
+    // present — a session with no owning client can't be filed.
+    const clientId =
+      (typeof payload['client_id'] === 'string'
+        ? (payload['client_id'] as string)
+        : null) ??
+      (typeof payload['azp'] === 'string' ? (payload['azp'] as string) : null);
+    if (!clientId) {
+      throw new Error('JWT has no client_id / azp claim');
+    }
+    return { userId: sub, clientId, payload };
   }
 }

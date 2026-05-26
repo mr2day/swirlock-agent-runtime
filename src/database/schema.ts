@@ -16,6 +16,10 @@ export type Backend = 'anthropic' | 'mistral-online' | 'mistral-local';
 
 export interface SessionsTable {
   id: Generated<string>;
+  // OAuth client_id from the JWT — the app that owns this session.
+  // Different client apps (chatbot UI vs commerce UI vs IDE plugin)
+  // never see each other's sessions, even if they share a user.
+  client_id: string;
   user_id: string;
   title: string | null;
   system_prompt: string | null;

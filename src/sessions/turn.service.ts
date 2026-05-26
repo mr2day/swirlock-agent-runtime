@@ -14,6 +14,7 @@ import { SessionService } from './session.service';
 
 export interface RunTurnInput {
   sessionId: string;
+  clientId: string;
   userId: string;
   userMessage: string;
   // Optional override of the session's default backend for this single
@@ -44,8 +45,16 @@ export class TurnService {
    * the same AgentEvent stream the loop produces.
    */
   async *runTurn(input: RunTurnInput): AsyncGenerator<AgentEvent> {
-    const session = await this.sessions.getSession(input.sessionId, input.userId);
-    const history = await this.sessions.getMessages(input.sessionId, input.userId);
+    const session = await this.sessions.getSession(
+      input.sessionId,
+      input.clientId,
+      input.userId,
+    );
+    const history = await this.sessions.getMessages(
+      input.sessionId,
+      input.clientId,
+      input.userId,
+    );
 
     const backend = this.resolveBackend(input.backendOverride, session.defaultBackend);
     const turnId = input.turnId ?? randomUUID();
