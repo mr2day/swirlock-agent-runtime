@@ -26,11 +26,11 @@ module.exports = {
 
     // === IdP — same as the rest of the Swirlock ecosystem ===
     IDP_ISSUER: 'https://idpbase.swirlock.com/oidc',
-    // Per-machine audience must match the URL the chatbot UI / commerce
-    // engine / etc. requested tokens with. Default below is the dev
-    // localhost; override in service.config.local.cjs for any other
-    // deployment.
-    IDP_AUDIENCE: 'http://127.0.0.1:3216',
+    // Audience pinned to the agent's public hostname. Must match the
+    // `resource` field on every OIDC client registered to talk to the
+    // agent. The chatbot UI's swirlock-chatbot-ui client is registered
+    // with this exact value.
+    IDP_AUDIENCE: 'https://agent.gigi-the-robot.com',
 
     // === Postgres ===
     PG_HOST: '127.0.0.1',
@@ -45,6 +45,12 @@ module.exports = {
     AGENT_DEFAULT_BACKEND: 'anthropic',
     AGENT_MAX_STEPS: '8',
     AGENT_MAX_OUTPUT_TOKENS: '4096',
+    // Per (client_id, user_id) daily turn cap. UTC-midnight rolling
+    // window. Counted from messages.role='user' rows joined to
+    // sessions. Set to 0 (or any non-positive) to disable. 200/day
+    // covers normal use and caps a runaway script at ~$5-10/day of
+    // Haiku tokens.
+    AGENT_TURN_CAP_PER_USER_PER_DAY: '200',
 
     // === Anthropic provider ===
     ANTHROPIC_DEFAULT_MODEL: 'claude-haiku-4-5-20251001',

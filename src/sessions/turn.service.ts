@@ -50,14 +50,45 @@ export class TurnService {
       input.clientId,
       input.userId,
     );
+
+    const backend = this.resolveBackend(input.backendOverride, session.defaultBackend);
+    const turnId = input.turnId ?? randomUUID();
+
+    // Daily turn cap. Counts user-role messages for this
+    // (client_id, user_id) since UTC midnight and refuses the turn if
+    // we're at or above the configured limit. Cap is per (client, user)
+    // so a person using two of our apps gets full quota in each. Cheap
+    // index-aided count (sessions(client_id, user_id) +
+    // messages(session_id, seq), filtered by created_at).
+    const cap = Number(process.env.AGENT_TURN_CAP_PER_USER_PER_DAY ?? '200');
+    if (Number.isFinite(cap) && cap > 0) {
+      const startOfDay = new Date();
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const row = await this.database.db
+        .selectFrom('messages')
+        .innerJoin('sessions', 'sessions.id', 'messages.session_id')
+        .select((eb) => eb.fn.countAll().as('used'))
+        .where('sessions.client_id', '=', input.clientId)
+        .where('sessions.user_id', '=', input.userId)
+        .where('messages.role', '=', 'user')
+        .where('messages.created_at', '>=', startOfDay)
+        .executeTakeFirstOrThrow();
+      const used = Number(row.used);
+      if (used >= cap) {
+        yield {
+          kind: 'turn-error',
+          turnId,
+          error: `daily turn cap reached (${used}/${cap}). Try again after UTC midnight.`,
+        };
+        return;
+      }
+    }
+
     const history = await this.sessions.getMessages(
       input.sessionId,
       input.clientId,
       input.userId,
     );
-
-    const backend = this.resolveBackend(input.backendOverride, session.defaultBackend);
-    const turnId = input.turnId ?? randomUUID();
 
     // 1. Persist the user message under the next seq.
     const nextSeq = await this.appendMessage({
