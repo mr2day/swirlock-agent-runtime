@@ -61,9 +61,9 @@ module.exports = {
 
     // === Mistral La Plateforme provider ===
     // ministral-14b-latest is the 14B Ministral on the hosted API
-    // ($0.20/$0.20 per 1M tokens as of 2026-05). Switch to
-    // mistral-medium-latest for stronger reasoning (~$0.40/$2.00) or
-    // mistral-large-latest for premium opt-in.
+    // (€0.14 / €0.14 per 1M tokens — both directions, verified
+    // 2026-05-27 on console.mistral.ai). Switch to mistral-medium-latest
+    // for stronger reasoning or mistral-large-latest for premium opt-in.
     MISTRAL_DEFAULT_MODEL: 'ministral-14b-latest',
 
     // === vLLM local provider (configured when WSL2 is set up) ===
