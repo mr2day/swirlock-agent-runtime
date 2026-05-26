@@ -60,8 +60,17 @@ export class TurnService {
     // so a person using two of our apps gets full quota in each. Cheap
     // index-aided count (sessions(client_id, user_id) +
     // messages(session_id, seq), filtered by created_at).
+    //
+    // AGENT_TURN_CAP_EXEMPT_USERS is a comma-separated allowlist of
+    // IdP sub values that bypass the cap entirely. Reserved for the
+    // operator's own account; do not hand out exemptions casually.
+    const exemptSubs = (process.env.AGENT_TURN_CAP_EXEMPT_USERS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const isExempt = exemptSubs.includes(input.userId);
     const cap = Number(process.env.AGENT_TURN_CAP_PER_USER_PER_DAY ?? '200');
-    if (Number.isFinite(cap) && cap > 0) {
+    if (!isExempt && Number.isFinite(cap) && cap > 0) {
       const startOfDay = new Date();
       startOfDay.setUTCHours(0, 0, 0, 0);
       const row = await this.database.db

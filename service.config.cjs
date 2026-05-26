@@ -55,6 +55,11 @@ module.exports = {
     // covers normal use and caps a runaway script at ~$5-10/day of
     // Haiku tokens.
     AGENT_TURN_CAP_PER_USER_PER_DAY: '200',
+    // Comma-separated IdP `sub` values exempt from the cap. Reserved
+    // for the operator's own account. Populated per-machine in
+    // service.config.local.cjs — the default here is empty so a
+    // misconfigured deploy does not silently exempt anyone.
+    AGENT_TURN_CAP_EXEMPT_USERS: '',
 
     // === Anthropic provider ===
     ANTHROPIC_DEFAULT_MODEL: 'claude-haiku-4-5-20251001',
