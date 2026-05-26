@@ -42,7 +42,11 @@ module.exports = {
     // Postgres superuser).
 
     // === Agent loop defaults ===
-    AGENT_DEFAULT_BACKEND: 'anthropic',
+    // EU-first phase: Mistral La Plateforme (EU-hosted, GDPR-clean) is
+    // the production default. Anthropic stays available as a per-turn
+    // override (`backend: 'anthropic'` on turn.submit). See
+    // [[project-eu-first-mistral-default]] in memory for the rationale.
+    AGENT_DEFAULT_BACKEND: 'mistral-online',
     AGENT_MAX_STEPS: '8',
     AGENT_MAX_OUTPUT_TOKENS: '4096',
     // Per (client_id, user_id) daily turn cap. UTC-midnight rolling
