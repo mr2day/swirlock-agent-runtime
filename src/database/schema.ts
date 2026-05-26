@@ -12,7 +12,11 @@ export type Role = 'user' | 'assistant' | 'system' | 'tool';
 
 export type SessionStatus = 'active' | 'archived' | 'deleted';
 
-export type Backend = 'anthropic' | 'mistral-online' | 'mistral-local';
+export type Backend =
+  | 'anthropic'
+  | 'mistral-online'
+  | 'mistral-local'
+  | 'ollama-local';
 
 export interface SessionsTable {
   id: Generated<string>;

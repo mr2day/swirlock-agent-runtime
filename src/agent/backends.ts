@@ -4,7 +4,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { Injectable, Logger } from '@nestjs/common';
 import type { LanguageModel } from 'ai';
 
-// Three backends we plan to operate against. The orchestrator picks
+// Four backends we plan to operate against. The orchestrator picks
 // one per turn (default at the session level, optionally overridden by
 // the client on turn.submit).
 //
@@ -12,7 +12,13 @@ import type { LanguageModel } from 'ai';
 //   mistral-online  — Mistral La Plateforme, Ministral 3 14B by default
 //   mistral-local   — local vLLM serving Ministral via OpenAI-compatible
 //                     REST, plain bearer-less localhost endpoint
-export type BackendId = 'anthropic' | 'mistral-online' | 'mistral-local';
+//   ollama-local    — local Ollama serving any pulled model via its
+//                     OpenAI-compatible endpoint at :11434/v1; no auth
+export type BackendId =
+  | 'anthropic'
+  | 'mistral-online'
+  | 'mistral-local'
+  | 'ollama-local';
 
 export interface BackendChoice {
   backend: BackendId;
@@ -39,6 +45,15 @@ export class BackendsService {
     // vLLM by default does not require a key. We pass a sentinel so the
     // OpenAI SDK does not reject the request for missing Authorization.
     apiKey: process.env.VLLM_API_KEY ?? 'sk-no-auth',
+  });
+
+  private readonly ollamaFactory = createOpenAICompatible({
+    name: 'ollama-local',
+    baseURL: process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434/v1',
+    // Ollama's OpenAI-compatible endpoint does not require a key but
+    // the OpenAI SDK will refuse to send a request without an
+    // Authorization header. Sentinel keeps the wire happy.
+    apiKey: process.env.OLLAMA_API_KEY ?? 'sk-no-auth',
   });
 
   /**
@@ -79,6 +94,14 @@ export class BackendsService {
         return this.vllmFactory(model);
       }
 
+      case 'ollama-local': {
+        const model =
+          choice.model ??
+          process.env.OLLAMA_DEFAULT_MODEL ??
+          'ministral-3:14b';
+        return this.ollamaFactory(model);
+      }
+
       default: {
         const _exhaustive: never = backend;
         void _exhaustive;
@@ -96,6 +119,7 @@ export class BackendsService {
     const list: BackendId[] = ['anthropic']; // always required at startup
     if (this.mistralOnlineFactory) list.push('mistral-online');
     list.push('mistral-local');
+    list.push('ollama-local');
     return list;
   }
 

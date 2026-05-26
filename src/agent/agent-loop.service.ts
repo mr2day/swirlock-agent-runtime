@@ -168,6 +168,8 @@ export class AgentLoopService {
         return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-3-14b-25-12';
       case 'mistral-local':
         return process.env.VLLM_DEFAULT_MODEL ?? 'ministral-3:14b';
+      case 'ollama-local':
+        return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
     }
   }
 }
