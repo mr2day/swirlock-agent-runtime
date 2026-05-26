@@ -120,6 +120,10 @@ export class TurnService {
     // 3. Stream the loop, persisting outputs at turn-done.
     let baseSeq = nextSeq;
     let lastUsage: { totalTokens?: number } = {};
+    // Captured from turn-accepted so the model that actually served
+    // this turn is stamped on every assistant/tool message we persist.
+    // Per-message attribution survives session.get.
+    let attribution: { backend: string; modelId: string } | null = null;
 
     for await (const event of this.agentLoop.run({
       systemPrompt: session.systemPrompt ?? undefined,
@@ -131,12 +135,17 @@ export class TurnService {
     })) {
       yield event;
 
+      if (event.kind === 'turn-accepted') {
+        attribution = { backend: event.backend, modelId: event.model };
+      }
+
       if (event.kind === 'turn-done') {
         lastUsage = event.usage;
 
         // Persist every assistant/tool message emitted across the
         // multi-step loop in the order the SDK returned them. Each
-        // gets its own monotonic seq.
+        // gets its own monotonic seq. Assistant/tool messages carry
+        // the {backend, modelId} attribution captured at turn-accepted.
         for (const msg of event.responseMessages) {
           baseSeq = await this.appendMessage({
             sessionId: input.sessionId,
@@ -144,7 +153,7 @@ export class TurnService {
             role: msg.role,
             content: extractStorableContent(msg.content),
             text: extractDisplayText(msg.content),
-            metadata: null,
+            metadata: attribution,
           });
         }
 

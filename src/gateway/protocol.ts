@@ -1,5 +1,5 @@
 import type { Backend } from '../database/schema';
-import type { BackendChoice } from '../agent/agent.types';
+import type { BackendChoice, BackendInfo } from '../agent/agent.types';
 
 // =====================================================================
 // CLIENT -> SERVER envelopes
@@ -40,6 +40,12 @@ export interface ClientBackendsListFrame extends ClientFrameBase {
   type: 'backends.list';
 }
 
+export interface ClientSessionSetBackendFrame extends ClientFrameBase {
+  type: 'session.set_backend';
+  sessionId: string;
+  backend: Backend;
+}
+
 export interface ClientTurnSubmitFrame extends ClientFrameBase {
   type: 'turn.submit';
   sessionId: string;
@@ -56,6 +62,7 @@ export type ClientFrame =
   | ClientSessionListFrame
   | ClientSessionGetFrame
   | ClientSessionArchiveFrame
+  | ClientSessionSetBackendFrame
   | ClientBackendsListFrame
   | ClientTurnSubmitFrame;
 
@@ -92,7 +99,12 @@ export type ServerFrame =
     })
   | (ServerFrameBase & {
       type: 'backends.list';
-      backends: Backend[];
+      defaultBackend: Backend;
+      backends: BackendInfo[];
+    })
+  | (ServerFrameBase & {
+      type: 'session.backend_set';
+      session: PublicSession;
     })
   | (ServerFrameBase & {
       type: 'turn.accepted';
@@ -162,4 +174,9 @@ export interface PublicMessage {
   text: string;
   seq: number;
   createdAt: string;
+  // Free-form per-message metadata. Today the agent stamps assistant
+  // messages with `{ backend, modelId }` so the UI can show per-turn
+  // model attribution. Null for user messages and pre-attribution
+  // assistant messages.
+  metadata: Record<string, unknown> | null;
 }

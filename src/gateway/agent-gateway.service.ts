@@ -262,9 +262,25 @@ class Connection {
         this.send({
           type: 'backends.list',
           inReplyTo: frame.id,
+          defaultBackend: this.gateway.backendsService.defaultBackend(),
           backends: this.gateway.backendsService.available(),
         });
         return;
+
+      case 'session.set_backend': {
+        const session = await this.gateway.sessionService.setSessionBackend(
+          frame.sessionId,
+          clientId,
+          userId,
+          frame.backend,
+        );
+        this.send({
+          type: 'session.backend_set',
+          inReplyTo: frame.id,
+          session: toPublicSession(session),
+        });
+        return;
+      }
 
       case 'turn.submit': {
         await this.runTurnStream(clientId, userId, frame);
@@ -459,6 +475,7 @@ function toPublicMessage(m: MessageRecord): PublicMessage {
     text: m.text,
     seq: m.seq,
     createdAt: m.createdAt.toISOString(),
+    metadata: m.metadata,
   };
 }
 

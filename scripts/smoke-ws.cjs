@@ -11,6 +11,11 @@
 
 const path = require('node:path');
 
+// Force bypass mode for this smoke regardless of what
+// service.config.local.cjs has set (production runs DEV_BYPASS_AUTH=false).
+// The env loader respects already-set values, so this wins.
+process.env.DEV_BYPASS_AUTH = 'true';
+
 require(path.join(__dirname, '..', 'dist', 'env'));
 
 const WebSocket = require('ws');

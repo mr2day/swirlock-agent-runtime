@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
-import type { BackendChoice, BackendId } from './backends';
+import type { BackendChoice, BackendId, BackendInfo } from './backends';
 
-export type { BackendChoice, BackendId };
+export type { BackendChoice, BackendId, BackendInfo };
 
 /**
  * Inputs to a single agent turn. `messages` is the conversation

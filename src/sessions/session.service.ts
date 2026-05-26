@@ -127,6 +127,26 @@ export class SessionService {
       .execute();
   }
 
+  /**
+   * Update the session's default backend. Subsequent turns that don't
+   * specify a per-turn override will use the new backend; past turns
+   * are not retroactively reattributed. Returns the updated session.
+   */
+  async setSessionBackend(
+    sessionId: string,
+    clientId: string,
+    userId: string,
+    backend: Backend,
+  ): Promise<SessionRecord> {
+    await this.getSession(sessionId, clientId, userId);
+    await this.database.db
+      .updateTable('sessions')
+      .set({ default_backend: backend, updated_at: new Date() })
+      .where('id', '=', sessionId)
+      .execute();
+    return this.getSession(sessionId, clientId, userId);
+  }
+
   private toSessionRecord(row: {
     id: string;
     client_id: string;
