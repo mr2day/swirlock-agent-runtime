@@ -110,6 +110,20 @@ export class TurnService {
     });
     this.logger.debug(`turn ${turnId} user message persisted at seq=${nextSeq}`);
 
+    // First user message in this session: auto-derive a title from it
+    // and write it onto the session row. The client doesn't pass a
+    // title at create time anymore; the session's title is the first
+    // thing the user actually typed. Sidebar / session.list pick it
+    // up on the next refresh.
+    if (nextSeq === 1) {
+      const derivedTitle = deriveSessionTitle(input.userMessage);
+      await this.database.db
+        .updateTable('sessions')
+        .set({ title: derivedTitle, updated_at: new Date() })
+        .where('id', '=', input.sessionId)
+        .execute();
+    }
+
     // 2. Build the ModelMessage[] history for the loop.
     const modelMessages: ModelMessage[] = [];
     for (const m of history) {
@@ -239,6 +253,18 @@ export class TurnService {
       (process.env.AGENT_DEFAULT_BACKEND as Backend | undefined) ?? 'anthropic';
     return { backend: envDefault };
   }
+}
+
+/**
+ * Pick a session title from the first user message: trim whitespace,
+ * collapse internal runs, clip to 60 chars + ellipsis. Same shape as
+ * the UI used to derive client-side, lifted to the server so it
+ * survives across devices.
+ */
+function deriveSessionTitle(text: string): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return 'New chat';
+  return cleaned.length <= 60 ? cleaned : cleaned.slice(0, 60).trimEnd() + '…';
 }
 
 function toModelMessage(role: Role, content: MessageContent): ModelMessage {

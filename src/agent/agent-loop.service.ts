@@ -59,11 +59,20 @@ export class AgentLoopService {
     const tools = this.toolRegistry.toToolSet() as ToolSet;
     const hasTools = Object.keys(tools).length > 0;
 
+    // Substitute ${model} in the system prompt with the model that
+    // will actually serve this turn. The placeholder is stored
+    // verbatim on session.system_prompt, so a backend switch is
+    // immediately reflected in the next turn's persona introspection
+    // ("what model are you based on?" answers truthfully).
+    const resolvedSystem = input.systemPrompt
+      ? input.systemPrompt.replace(/\$\{model\}/g, modelId)
+      : undefined;
+
     let result;
     try {
       result = streamText({
         model,
-        system: input.systemPrompt,
+        system: resolvedSystem,
         messages: input.messages,
         tools: hasTools ? tools : undefined,
         stopWhen: stepCountIs(maxSteps),
