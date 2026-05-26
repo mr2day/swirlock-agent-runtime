@@ -148,12 +148,16 @@ class Connection {
         const identity = await this.gateway.authService.verify(frame.token);
         this.userId = identity.userId;
         this.clientId = identity.clientId;
+        this.logger.log(
+          `auth ok userId=${identity.userId} clientId=${identity.clientId}`,
+        );
         this.send({
           type: 'ready',
           inReplyTo: frame.id,
           userId: identity.userId,
         });
       } catch (err) {
+        this.logger.warn(`auth failed: ${errorMessage(err)}`);
         this.send({
           type: 'error',
           inReplyTo: frame.id,
