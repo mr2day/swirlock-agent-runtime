@@ -82,7 +82,7 @@ export class BackendsService {
         const model =
           choice.model ??
           process.env.MISTRAL_DEFAULT_MODEL ??
-          'ministral-3-14b-25-12';
+          'ministral-14b-latest';
         return this.mistralOnlineFactory(model);
       }
 

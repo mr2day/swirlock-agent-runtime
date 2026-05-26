@@ -56,7 +56,11 @@ module.exports = {
     ANTHROPIC_DEFAULT_MODEL: 'claude-haiku-4-5-20251001',
 
     // === Mistral La Plateforme provider ===
-    MISTRAL_DEFAULT_MODEL: 'ministral-3-14b-25-12',
+    // ministral-14b-latest is the 14B Ministral on the hosted API
+    // ($0.20/$0.20 per 1M tokens as of 2026-05). Switch to
+    // mistral-medium-latest for stronger reasoning (~$0.40/$2.00) or
+    // mistral-large-latest for premium opt-in.
+    MISTRAL_DEFAULT_MODEL: 'ministral-14b-latest',
 
     // === vLLM local provider (configured when WSL2 is set up) ===
     VLLM_BASE_URL: 'http://127.0.0.1:8000/v1',

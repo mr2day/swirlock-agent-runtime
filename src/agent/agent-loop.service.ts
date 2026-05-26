@@ -165,7 +165,7 @@ export class AgentLoopService {
           process.env.ANTHROPIC_DEFAULT_MODEL ?? 'claude-haiku-4-5-20251001'
         );
       case 'mistral-online':
-        return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-3-14b-25-12';
+        return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
       case 'mistral-local':
         return process.env.VLLM_DEFAULT_MODEL ?? 'ministral-3:14b';
       case 'ollama-local':
