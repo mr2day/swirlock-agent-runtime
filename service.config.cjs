@@ -82,12 +82,14 @@ module.exports = {
     // for stronger reasoning or mistral-large-latest for premium opt-in.
     MISTRAL_DEFAULT_MODEL: 'ministral-14b-latest',
 
-    // === vLLM local provider ===
-    // vLLM runs in a Docker container with GPU passthrough; serves an
-    // OpenAI-compatible REST endpoint at :8000/v1. The served model
-    // name must match the `--served-model-name` arg on the container.
-    VLLM_BASE_URL: 'http://127.0.0.1:8000/v1',
-    VLLM_DEFAULT_MODEL: 'ministral-14b-local',
+    // === Ollama local provider ===
+    // Ollama runs as a native Windows daemon at :11434. We wire the
+    // agent against Ollama's native /api/chat endpoint via the
+    // ollama-ai-provider-v2 package — NOT the OpenAI-compat shim at
+    // /v1 — because the shim has been known to drop tool-call
+    // payloads. The base URL therefore points at the /api root.
+    OLLAMA_BASE_URL: 'http://127.0.0.1:11434/api',
+    OLLAMA_DEFAULT_MODEL: 'ministral-3:14b',
 
     // === Search ===
     // EXA_API_KEY has no default — must be set per-machine.

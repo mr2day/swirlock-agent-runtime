@@ -18,7 +18,7 @@
 const path = require('node:path');
 require(path.join(__dirname, '..', 'dist', 'env'));
 
-const BACKENDS = ['anthropic', 'mistral-online', 'mistral-local'];
+const BACKENDS = ['anthropic', 'mistral-online', 'ollama-local'];
 
 const PROMPTS = [
   {
