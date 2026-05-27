@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "db:setup": "node scripts/setup-database.cjs",
     "db:migrate": "node scripts/migrate.cjs",
-    "eval": "node eval/runner.cjs"
+    "eval": "node eval/runner.cjs",
+    "deploy": "bash ./deploy.sh"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
