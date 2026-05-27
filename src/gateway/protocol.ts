@@ -161,6 +161,16 @@ export type ServerFrame =
       turnId: string;
       usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
       finishReason: string;
+      // Why the agent loop ended. 'completed' = model emitted a final
+      // answer naturally. Anything else = a safety rail fired (the
+      // assistant message may be empty or partial). Optional on the
+      // wire so older clients keep working.
+      stopReason?:
+        | 'completed'
+        | 'step-budget'
+        | 'tool-quota'
+        | 'repeat-tool-call';
+      stopDetail?: string;
     })
   | (ServerFrameBase & {
       type: 'turn.error';

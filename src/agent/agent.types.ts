@@ -88,6 +88,14 @@ export type AgentEvent =
         totalTokens?: number;
       };
       finishReason: string;
+      // Why the loop ended. 'completed' means the model emitted a final
+      // answer naturally. Anything else means a safety rail fired
+      // before synthesis — the UI should render a status indicator;
+      // the response text may be empty or truncated.
+      stopReason: 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call';
+      // Free-form detail for non-completed stops (e.g. "search_web
+      // called 5× (quota 5)"). Absent when stopReason === 'completed'.
+      stopDetail?: string;
     }
   | {
       kind: 'turn-error';

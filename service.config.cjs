@@ -47,8 +47,19 @@ module.exports = {
     // override (`backend: 'anthropic'` on turn.submit). See
     // [[project-eu-first-mistral-default]] in memory for the rationale.
     AGENT_DEFAULT_BACKEND: 'mistral-online',
-    AGENT_MAX_STEPS: '8',
+    // Global cap on model→tool→model round-trips per turn. Multi-tool
+    // tasks (search, then add, then time, then synthesize) fit
+    // comfortably under 16. The per-tool quota (AGENT_TOOL_QUOTAS_JSON)
+    // catches single-tool runaway loops earlier than this global cap.
+    AGENT_MAX_STEPS: '16',
     AGENT_MAX_OUTPUT_TOKENS: '4096',
+    // Per-tool call quota per turn. Catches "model hammers the same
+    // tool with slightly different args forever" before it drains
+    // AGENT_MAX_STEPS. AGENT_TOOL_QUOTA_DEFAULT applies to any tool
+    // not named in AGENT_TOOL_QUOTAS_JSON. Set the default to 0 (or
+    // negative) to disable quotas entirely.
+    AGENT_TOOL_QUOTA_DEFAULT: '5',
+    AGENT_TOOL_QUOTAS_JSON: '{"search_web":5,"get_current_time":3,"add_numbers":3}',
     // Per (client_id, user_id) daily turn cap. UTC-midnight rolling
     // window. Counted from messages.role='user' rows joined to
     // sessions. Set to 0 (or any non-positive) to disable. 200/day

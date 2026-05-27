@@ -72,13 +72,15 @@ async function main() {
       let answer = '';
       const toolCalls = [];
       let error = null;
+      let stopReason = null;
+      let stopDetail = null;
 
       try {
         const turn = agentLoop.run({
           systemPrompt: SYSTEM_PROMPT,
+          // No maxSteps pin — uses AGENT_MAX_STEPS from env.
           messages,
           backend: { backend },
-          maxSteps: 4,
           maxOutputTokens: 600,
           userTimezone: 'Europe/Bucharest',
         });
@@ -98,6 +100,10 @@ async function main() {
               if (last) last.output = evt.output;
               break;
             }
+            case 'turn-done':
+              stopReason = evt.stopReason;
+              stopDetail = evt.stopDetail ?? null;
+              break;
             case 'turn-error':
               error = evt.error;
               break;
@@ -148,6 +154,9 @@ async function main() {
         console.log(`TOOL CALLS: (none)`);
       }
       if (error) console.log(`ERROR: ${error}`);
+      if (stopReason && stopReason !== 'completed') {
+        console.log(`STOP: ${stopReason}${stopDetail ? ` — ${stopDetail}` : ''}`);
+      }
       console.log(`ANSWER:\n${answer.trim()}`);
 
       results[backend].push({
@@ -156,6 +165,8 @@ async function main() {
         elapsedMs,
         tools: toolSummary,
         answer: answer.trim(),
+        stopReason,
+        stopDetail,
         error,
       });
     }

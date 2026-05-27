@@ -520,6 +520,8 @@ function translateAgentEvent(
         turnId: evt.turnId,
         usage: evt.usage,
         finishReason: evt.finishReason,
+        stopReason: evt.stopReason,
+        ...(evt.stopDetail ? { stopDetail: evt.stopDetail } : {}),
       };
     case 'turn-error':
       return {

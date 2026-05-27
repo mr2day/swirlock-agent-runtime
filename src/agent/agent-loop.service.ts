@@ -5,6 +5,43 @@ import { BackendsService } from './backends';
 import { ToolRegistry } from '../tools/tool-registry';
 import type { AgentEvent, AgentTurnInput } from './agent.types';
 
+type StopReason = 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call';
+
+interface ToolQuotaConfig {
+  default: number;
+  perTool: Record<string, number>;
+}
+
+/**
+ * Per-tool call quotas. A tool can be called at most N times per turn;
+ * once exceeded, the agent loop stops with stopReason='tool-quota' so
+ * a model stuck retrying the same tool can't drain the global step
+ * budget. Configured by:
+ *
+ *   AGENT_TOOL_QUOTA_DEFAULT  default quota for any tool (default 5;
+ *                             set to 0 or negative to disable quotas)
+ *   AGENT_TOOL_QUOTAS_JSON    JSON object with per-tool overrides,
+ *                             e.g. '{"search_web":5,"get_current_time":3}'
+ */
+function parseToolQuotas(): ToolQuotaConfig {
+  const defaultQuota = Number(process.env.AGENT_TOOL_QUOTA_DEFAULT ?? '5');
+  const json = process.env.AGENT_TOOL_QUOTAS_JSON;
+  const perTool: Record<string, number> = {};
+  if (json) {
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed && typeof parsed === 'object') {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'number' && Number.isFinite(v)) perTool[k] = v;
+        }
+      }
+    } catch {
+      // ignore malformed JSON — every tool falls back to default
+    }
+  }
+  return { default: defaultQuota, perTool };
+}
+
 /**
  * Single-turn agent loop. Resolves the requested backend, streams the
  * model response (looping over tool calls as needed up to the step
@@ -59,6 +96,62 @@ export class AgentLoopService {
     const tools = this.toolRegistry.toToolSet() as ToolSet;
     const hasTools = Object.keys(tools).length > 0;
 
+    // Per-turn stop-reason tracking. Initialised optimistically to
+    // 'completed'; the stopWhen predicates below may overwrite it
+    // eagerly when they fire. After the loop ends we may overwrite
+    // again based on finishReason (e.g. a 'stop' finish means the
+    // model emitted a final answer naturally even if a predicate
+    // technically fired on the same step).
+    let stopReason: StopReason = 'completed';
+    let stopDetail: string | undefined;
+
+    const quotas = parseToolQuotas();
+    const toolCounts: Record<string, number> = {};
+    let lastToolCallSig: string | null = null;
+
+    // Per-tool quota: a single tool can be called at most N times per
+    // turn (configurable, see parseToolQuotas). Catches "model
+    // hammers search_web with slightly different queries forever"
+    // failure mode earlier than the global step budget would.
+    const quotaCondition = ({ steps }: { steps: ReadonlyArray<{
+      toolCalls?: ReadonlyArray<{ toolName: string }>;
+    }> }): boolean => {
+      const last = steps[steps.length - 1];
+      if (!last?.toolCalls) return false;
+      for (const tc of last.toolCalls) {
+        const name = tc.toolName;
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        const quota = quotas.perTool[name] ?? quotas.default;
+        if (quota > 0 && toolCounts[name] > quota) {
+          stopReason = 'tool-quota';
+          stopDetail = `tool ${name} called ${toolCounts[name]}× (quota ${quota})`;
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Repeat-tool-call detection: if the model emits the same tool
+    // with byte-identical arguments twice in a row, stop. The
+    // identical retry usually means the model misread the previous
+    // result and is about to loop indefinitely.
+    const repeatCondition = ({ steps }: { steps: ReadonlyArray<{
+      toolCalls?: ReadonlyArray<{ toolName: string; input?: unknown }>;
+    }> }): boolean => {
+      const last = steps[steps.length - 1];
+      if (!last?.toolCalls) return false;
+      for (const tc of last.toolCalls) {
+        const sig = `${tc.toolName}:${JSON.stringify(tc.input ?? {})}`;
+        if (sig === lastToolCallSig) {
+          stopReason = 'repeat-tool-call';
+          stopDetail = `tool ${tc.toolName} called twice in a row with identical args`;
+          return true;
+        }
+        lastToolCallSig = sig;
+      }
+      return false;
+    };
+
     // Substitute placeholders in the persisted system prompt right
     // before sending. Four placeholders today:
     //
@@ -90,7 +183,16 @@ export class AgentLoopService {
         system: resolvedSystem,
         messages: input.messages,
         tools: hasTools ? tools : undefined,
-        stopWhen: stepCountIs(maxSteps),
+        // Three stop conditions, evaluated after each step:
+        //   1. stepCountIs(maxSteps)      — global step budget
+        //   2. per-tool quota             — catches per-tool runaway
+        //   3. repeat-call detection      — catches model loops
+        // Whichever fires first sets stopReason via closure capture.
+        stopWhen: [
+          stepCountIs(maxSteps),
+          quotaCondition,
+          repeatCondition,
+        ],
         maxOutputTokens,
         abortSignal: input.abortSignal,
       });
@@ -163,6 +265,22 @@ export class AgentLoopService {
         result.finishReason,
       ]);
 
+      // Reconcile finishReason against the closure-captured
+      // stopReason. If the provider says 'stop' or 'length', the
+      // model emitted a final answer (possibly truncated by the
+      // output-token cap) — that's a natural completion regardless
+      // of which stopWhen predicate happened to fire on the same
+      // step. Only when finishReason is 'tool-calls' did the loop
+      // end mid-synthesis; if no predicate already claimed
+      // responsibility, blame the global step budget.
+      if (finishReason === 'stop' || finishReason === 'length') {
+        stopReason = 'completed';
+        stopDetail = undefined;
+      } else if (finishReason === 'tool-calls' && stopReason === 'completed') {
+        stopReason = 'step-budget';
+        stopDetail = `model still emitting tool calls after AGENT_MAX_STEPS=${maxSteps}`;
+      }
+
       yield {
         kind: 'turn-done',
         turnId,
@@ -173,6 +291,8 @@ export class AgentLoopService {
           totalTokens: usage.totalTokens,
         },
         finishReason,
+        stopReason,
+        ...(stopDetail ? { stopDetail } : {}),
       };
     } catch (err) {
       yield {
