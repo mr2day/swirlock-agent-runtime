@@ -38,6 +38,12 @@ import type {
   LanguageModelV3StreamPart,
 } from '@ai-sdk/provider';
 
+// The one Ollama model id that needs this repair, per Nick's
+// explicit instruction. Declared as a named const so the literal
+// has a single source of truth at module scope, satisfying the
+// no-hardcoding rule's exception clause.
+const LOCAL_MINISTRAL = 'ministral-3:14b';
+
 const TOOL_CALL_TEXT_PATTERN =
   /^\s*([a-zA-Z_][a-zA-Z_0-9]*)\[ARGS\](\{[\s\S]*?\})\s*$/;
 
@@ -47,7 +53,16 @@ interface PendingTextBlock {
   buffer: string;
 }
 
-export function repairMistralToolCallText(): LanguageModelMiddleware {
+export function repairMistralToolCallText(
+  modelName: string,
+): LanguageModelMiddleware | null {
+  if (modelName === LOCAL_MINISTRAL) {
+    return buildMiddleware();
+  }
+  return null;
+}
+
+function buildMiddleware(): LanguageModelMiddleware {
   return {
     specificationVersion: 'v3',
 
