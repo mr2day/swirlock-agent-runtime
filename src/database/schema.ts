@@ -32,6 +32,15 @@ export interface SessionsTable {
   created_at: ColumnType<Date, Date | string | undefined, never>;
   updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
   total_token_count: ColumnType<string, number | bigint | undefined, number | bigint>;
+  // Opaque client-side metadata bag. Persisted verbatim; the agent
+  // never interprets it. session.list can filter by JSONB
+  // containment (`@>`) so the chatbot UI can scope its sidebar by
+  // persona without losing other clients' sessions in the process.
+  client_metadata: ColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | null,
+    Record<string, unknown> | null
+  >;
 }
 
 export interface MessagesTable {

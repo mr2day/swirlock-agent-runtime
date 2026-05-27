@@ -19,11 +19,18 @@ export interface ClientSessionCreateFrame extends ClientFrameBase {
   title?: string;
   systemPrompt?: string;
   defaultBackend?: Backend;
+  /** Opaque client-side metadata bag, stored verbatim on the session
+   *  row. The chatbot UI stamps `{ personaId }` so listSessions can
+   *  scope its sidebar without losing other clients' sessions. */
+  clientMetadata?: Record<string, unknown>;
 }
 
 export interface ClientSessionListFrame extends ClientFrameBase {
   type: 'session.list';
   limit?: number;
+  /** JSONB-containment filter on sessions.client_metadata. Empty /
+   *  omitted means "all sessions for this (client, user)". */
+  clientMetadataFilter?: Record<string, unknown>;
 }
 
 export interface ClientSessionGetFrame extends ClientFrameBase {
@@ -56,6 +63,11 @@ export interface ClientTurnSubmitFrame extends ClientFrameBase {
   maxOutputTokens?: number;
 }
 
+export interface ClientTurnCancelFrame extends ClientFrameBase {
+  type: 'turn.cancel';
+  turnId: string;
+}
+
 export type ClientFrame =
   | ClientAuthFrame
   | ClientSessionCreateFrame
@@ -64,7 +76,8 @@ export type ClientFrame =
   | ClientSessionArchiveFrame
   | ClientSessionSetBackendFrame
   | ClientBackendsListFrame
-  | ClientTurnSubmitFrame;
+  | ClientTurnSubmitFrame
+  | ClientTurnCancelFrame;
 
 // =====================================================================
 // SERVER -> CLIENT envelopes
@@ -164,6 +177,9 @@ export interface PublicSession {
   createdAt: string;
   updatedAt: string;
   totalTokenCount: number;
+  /** Echoed back from session.create — clients use this to tell
+   *  their own UI scope apart (the agent doesn't interpret it). */
+  clientMetadata: Record<string, unknown> | null;
 }
 
 export interface PublicMessage {

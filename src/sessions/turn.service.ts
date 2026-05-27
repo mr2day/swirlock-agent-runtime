@@ -25,6 +25,10 @@ export interface RunTurnInput {
   // Optional caps. Fall back to AGENT_* env defaults inside the loop.
   maxSteps?: number;
   maxOutputTokens?: number;
+  // Aborts the in-flight provider call when signaled. The gateway
+  // creates a fresh AbortController per turn and aborts it when the
+  // client sends `turn.cancel` (or the socket closes).
+  abortSignal?: AbortSignal;
 }
 
 @Injectable()
@@ -111,16 +115,17 @@ export class TurnService {
     this.logger.debug(`turn ${turnId} user message persisted at seq=${nextSeq}`);
 
     // First user message in this session: auto-derive a title from it
-    // and write it onto the session row. The client doesn't pass a
-    // title at create time anymore; the session's title is the first
-    // thing the user actually typed. Sidebar / session.list pick it
-    // up on the next refresh.
+    // and write it onto the session row IFF the title is still null.
+    // Idempotent: a re-run (partial-retry, double-delivery) won't
+    // clobber a title that already exists; this also leaves any
+    // user-supplied title alone if one was ever passed.
     if (nextSeq === 1) {
       const derivedTitle = deriveSessionTitle(input.userMessage);
       await this.database.db
         .updateTable('sessions')
         .set({ title: derivedTitle, updated_at: new Date() })
         .where('id', '=', input.sessionId)
+        .where('title', 'is', null)
         .execute();
     }
 
@@ -146,6 +151,7 @@ export class TurnService {
       turnId,
       maxSteps: input.maxSteps,
       maxOutputTokens: input.maxOutputTokens,
+      abortSignal: input.abortSignal,
     })) {
       yield event;
 

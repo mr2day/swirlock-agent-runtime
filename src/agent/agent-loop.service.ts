@@ -77,6 +77,7 @@ export class AgentLoopService {
         tools: hasTools ? tools : undefined,
         stopWhen: stepCountIs(maxSteps),
         maxOutputTokens,
+        abortSignal: input.abortSignal,
       });
     } catch (err) {
       yield {

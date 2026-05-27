@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { sql, type SqlBool } from 'kysely';
 import { DatabaseService } from '../database/database.service';
 import type {
   Backend,
@@ -18,6 +19,7 @@ export interface SessionRecord {
   createdAt: Date;
   updatedAt: Date;
   totalTokenCount: number;
+  clientMetadata: Record<string, unknown> | null;
 }
 
 export interface MessageRecord {
@@ -38,6 +40,9 @@ export interface CreateSessionInput {
   title?: string;
   systemPrompt?: string;
   defaultBackend?: Backend;
+  /** Opaque client-side metadata. The chatbot UI stamps
+   *  `{ personaId }` here so listSessions can scope its sidebar. */
+  clientMetadata?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -53,6 +58,9 @@ export class SessionService {
       input.defaultBackend ??
       (await this.getUserPreferredBackend(input.clientId, input.userId));
 
+    // node-pg sends plain objects for jsonb verbatim and Postgres
+    // tries to parse them as text. Cast explicitly via sql template
+    // — same pattern as messages.metadata / messages.content.
     const inserted = await this.database.db
       .insertInto('sessions')
       .values({
@@ -61,6 +69,9 @@ export class SessionService {
         title: input.title ?? null,
         system_prompt: input.systemPrompt ?? null,
         default_backend: effectiveBackend ?? null,
+        client_metadata: input.clientMetadata
+          ? (sql`${JSON.stringify(input.clientMetadata)}::jsonb` as never)
+          : null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -109,16 +120,32 @@ export class SessionService {
   async listSessions(
     clientId: string,
     userId: string,
-    limit = 50,
+    options?: {
+      limit?: number;
+      /** Filter sessions by JSONB containment on client_metadata:
+       *  only return sessions whose client_metadata ⊇ this object.
+       *  Empty / undefined means no metadata filter. Used by the
+       *  chatbot UI to scope its sidebar by `{ personaId }`. */
+      clientMetadataFilter?: Record<string, unknown>;
+    },
   ): Promise<SessionRecord[]> {
-    const rows = await this.database.db
+    let q = this.database.db
       .selectFrom('sessions')
       .selectAll()
       .where('client_id', '=', clientId)
       .where('user_id', '=', userId)
-      .where('status', '=', 'active')
+      .where('status', '=', 'active');
+
+    const filter = options?.clientMetadataFilter;
+    if (filter && Object.keys(filter).length > 0) {
+      q = q.where(
+        sql<SqlBool>`client_metadata @> ${JSON.stringify(filter)}::jsonb`,
+      );
+    }
+
+    const rows = await q
       .orderBy('updated_at', 'desc')
-      .limit(limit)
+      .limit(options?.limit ?? 50)
       .execute();
     return rows.map((r) => this.toSessionRecord(r));
   }
@@ -203,6 +230,7 @@ export class SessionService {
     created_at: Date;
     updated_at: Date;
     total_token_count: string;
+    client_metadata: Record<string, unknown> | null;
   }): SessionRecord {
     return {
       id: row.id,
@@ -215,6 +243,7 @@ export class SessionService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       totalTokenCount: Number(row.total_token_count),
+      clientMetadata: row.client_metadata,
     };
   }
 

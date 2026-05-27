@@ -104,6 +104,14 @@ class Connection {
   private userId: string | null = null;
   private clientId: string | null = null;
   private closed = false;
+  /**
+   * Per-turn AbortController. `turn.submit` registers one keyed by
+   * turnId; `turn.cancel` looks it up and calls `abort()`, which
+   * propagates through TurnService -> AgentLoopService ->
+   * streamText's `abortSignal`. The provider call is torn down
+   * instead of running to completion.
+   */
+  private readonly activeTurns = new Map<string, AbortController>();
 
   constructor(
     private readonly socket: WebSocket,
@@ -113,6 +121,13 @@ class Connection {
   async run(): Promise<void> {
     this.socket.on('close', () => {
       this.closed = true;
+      // Tear down any in-flight turns when the client goes away.
+      // Otherwise the provider keeps generating + we keep billing
+      // for output the user can no longer see.
+      for (const controller of this.activeTurns.values()) {
+        controller.abort();
+      }
+      this.activeTurns.clear();
     });
     this.socket.on('error', (err) => {
       this.logger.warn(`socket error: ${errorMessage(err)}`);
@@ -201,6 +216,7 @@ class Connection {
           title: frame.title,
           systemPrompt: frame.systemPrompt,
           defaultBackend: frame.defaultBackend,
+          clientMetadata: frame.clientMetadata,
         });
         this.send({
           type: 'session.created',
@@ -214,7 +230,10 @@ class Connection {
         const sessions = await this.gateway.sessionService.listSessions(
           clientId,
           userId,
-          frame.limit,
+          {
+            limit: frame.limit,
+            clientMetadataFilter: frame.clientMetadataFilter,
+          },
         );
         this.send({
           type: 'session.list',
@@ -286,6 +305,17 @@ class Connection {
         await this.runTurnStream(clientId, userId, frame);
         return;
       }
+
+      case 'turn.cancel': {
+        const controller = this.activeTurns.get(frame.turnId);
+        if (controller) {
+          controller.abort();
+          // The runTurnStream loop will see the abort, emit
+          // turn-error, and clean up the map entry.
+        }
+        // Idempotent: cancelling a finished/unknown turn is a no-op.
+        return;
+      }
     }
   }
 
@@ -294,6 +324,17 @@ class Connection {
     userId: string,
     frame: import('./protocol').ClientTurnSubmitFrame,
   ): Promise<void> {
+    const controller = new AbortController();
+    // The turnId the agent will use: client-supplied or auto-gen'd
+    // by the loop. We need to register the controller under SOME id
+    // before iterating, but `turnId` is finalized in turn-accepted.
+    // Use the client-supplied id when present (the common case);
+    // otherwise register under a placeholder and rewrite on
+    // turn-accepted. This keeps cancel reliable for the typical
+    // chatbot-ui flow where the UI assigns turnId on submit.
+    let registeredId = frame.turnId ?? '';
+    if (registeredId) this.activeTurns.set(registeredId, controller);
+
     const events = this.gateway.turnService.runTurn({
       sessionId: frame.sessionId,
       clientId,
@@ -303,10 +344,21 @@ class Connection {
       turnId: frame.turnId,
       maxSteps: frame.maxSteps,
       maxOutputTokens: frame.maxOutputTokens,
+      abortSignal: controller.signal,
     });
-    for await (const evt of events) {
-      if (this.closed) break;
-      this.send(translateAgentEvent(evt, frame.id));
+    try {
+      for await (const evt of events) {
+        if (this.closed) break;
+        if (evt.kind === 'turn-accepted' && registeredId === '') {
+          // Loop generated the turnId; register now so a subsequent
+          // turn.cancel can find the controller.
+          registeredId = evt.turnId;
+          this.activeTurns.set(registeredId, controller);
+        }
+        this.send(translateAgentEvent(evt, frame.id));
+      }
+    } finally {
+      if (registeredId) this.activeTurns.delete(registeredId);
     }
   }
 
@@ -463,6 +515,7 @@ function toPublicSession(s: SessionRecord): PublicSession {
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
     totalTokenCount: s.totalTokenCount,
+    clientMetadata: s.clientMetadata,
   };
 }
 

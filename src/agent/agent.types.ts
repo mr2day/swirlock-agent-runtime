@@ -22,6 +22,10 @@ export interface AgentTurnInput {
   // Optional turn id assigned by the caller for tracing. If omitted
   // the loop generates one.
   turnId?: string;
+  // Plugged through to Vercel AI SDK's streamText — aborting the
+  // signal tears down the in-flight provider call instead of
+  // letting it run to completion and burn tokens.
+  abortSignal?: AbortSignal;
 }
 
 /**
