@@ -78,44 +78,21 @@ export class BackendsService {
   resolve(choice: BackendChoice): LanguageModel {
     const { backend } = choice;
 
+    const model = choice.model ?? this.defaultModelFor(backend);
     switch (backend) {
-      case 'anthropic': {
-        const model =
-          choice.model ??
-          process.env.ANTHROPIC_DEFAULT_MODEL ??
-          'claude-haiku-4-5-20251001';
+      case 'anthropic':
         return this.anthropicFactory(model);
-      }
-
-      case 'mistral-online': {
+      case 'mistral-online':
         if (!this.mistralOnlineFactory) {
           throw new Error(
             'mistral-online backend selected but MISTRAL_API_KEY is not set',
           );
         }
-        const model =
-          choice.model ??
-          process.env.MISTRAL_DEFAULT_MODEL ??
-          'ministral-14b-latest';
         return this.mistralOnlineFactory(model);
-      }
-
-      case 'mistral-local': {
-        const model =
-          choice.model ??
-          process.env.VLLM_DEFAULT_MODEL ??
-          'ministral-3:14b';
+      case 'mistral-local':
         return this.vllmFactory(model);
-      }
-
-      case 'ollama-local': {
-        const model =
-          choice.model ??
-          process.env.OLLAMA_DEFAULT_MODEL ??
-          'ministral-3:14b';
+      case 'ollama-local':
         return this.ollamaFactory(model);
-      }
-
       default: {
         const _exhaustive: never = backend;
         void _exhaustive;
@@ -125,57 +102,67 @@ export class BackendsService {
   }
 
   /**
-   * Lists which backends are currently usable (i.e. their required
-   * credentials are present). Used by the gateway to publish a
-   * backends.list reply.
+   * Lists every backend the runtime can actually serve right now.
+   * Cloud backends (anthropic, mistral-online) are gated by their
+   * API key env var. Local backends (mistral-local via vLLM,
+   * ollama-local) are probed at the configured URL on every call —
+   * if the service isn't running, the backend disappears from the
+   * UI picker. No hardcoded "this is always available" assumptions.
    */
-  /**
-   * Lists every backend the runtime can serve right now, with the
-   * display strings the UI uses to render the picker. The list is
-   * deterministic + cheap; safe to call on every `backends.list`
-   * frame. Mistral-online is omitted when no API key is configured.
-   */
-  available(): BackendInfo[] {
-    const list: BackendInfo[] = [
-      {
+  async available(): Promise<BackendInfo[]> {
+    const list: BackendInfo[] = [];
+
+    if (process.env.ANTHROPIC_API_KEY) {
+      list.push({
         name: 'anthropic',
         displayName: 'Claude Haiku 4.5',
-        defaultModelId:
-          process.env.ANTHROPIC_DEFAULT_MODEL ?? 'claude-haiku-4-5-20251001',
+        defaultModelId: this.defaultModelFor('anthropic'),
         location: 'cloud',
-      },
-    ];
+      });
+    }
     if (this.mistralOnlineFactory) {
       list.push({
         name: 'mistral-online',
         displayName: 'Ministral 14B',
-        defaultModelId:
-          process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest',
+        defaultModelId: this.defaultModelFor('mistral-online'),
         location: 'cloud',
       });
     }
-    list.push({
-      name: 'mistral-local',
-      displayName: 'Ministral via vLLM (local)',
-      defaultModelId:
-        process.env.VLLM_DEFAULT_MODEL ?? 'ministral-3:14b',
-      location: 'local',
-    });
-    list.push({
-      name: 'ollama-local',
-      displayName: 'Ollama (local)',
-      defaultModelId:
-        process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b',
-      location: 'local',
-    });
+
+    const [vllmUp, ollamaUp] = await Promise.all([
+      probeOpenAICompatible(
+        process.env.VLLM_BASE_URL ?? 'http://127.0.0.1:8000/v1',
+      ),
+      probeOpenAICompatible(
+        process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434/v1',
+      ),
+    ]);
+
+    if (vllmUp) {
+      list.push({
+        name: 'mistral-local',
+        displayName: 'vLLM (local)',
+        defaultModelId: this.defaultModelFor('mistral-local'),
+        location: 'local',
+      });
+    }
+    if (ollamaUp) {
+      list.push({
+        name: 'ollama-local',
+        displayName: 'Ollama (local)',
+        defaultModelId: this.defaultModelFor('ollama-local'),
+        location: 'local',
+      });
+    }
+
     return list;
   }
 
   /**
-   * The backend the agent picks when a session doesn't pin a default
-   * and a turn doesn't override. Pulled from AGENT_DEFAULT_BACKEND
-   * (`anthropic` if unset). Surfaced in `backends.list` so the UI can
-   * pre-select it.
+   * The configured default backend (AGENT_DEFAULT_BACKEND). NOTE:
+   * may not be currently available — callers wanting "what to
+   * pre-select in the UI" should reconcile against available()
+   * and fall back to the first available entry.
    */
   defaultBackend(): BackendId {
     const v = process.env.AGENT_DEFAULT_BACKEND as BackendId | undefined;
@@ -190,11 +177,56 @@ export class BackendsService {
     return 'anthropic';
   }
 
+  /**
+   * Single source of truth for the default model id of each
+   * backend. Used by `available()` (so the UI sees the same id the
+   * runtime will resolve), by `resolve()` (when no per-turn model
+   * override is set), and by AgentLoopService for turn-accepted
+   * attribution. Env-overridable at every backend.
+   */
+  defaultModelFor(backend: BackendId): string {
+    switch (backend) {
+      case 'anthropic':
+        return (
+          process.env.ANTHROPIC_DEFAULT_MODEL ?? 'claude-haiku-4-5-20251001'
+        );
+      case 'mistral-online':
+        return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
+      case 'mistral-local':
+        return process.env.VLLM_DEFAULT_MODEL ?? 'ministral-3:14b';
+      case 'ollama-local':
+        return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
+    }
+  }
+
   private requireEnv(name: string): string {
     const v = process.env[name];
     if (!v) {
       throw new Error(`${name} is required for the anthropic backend`);
     }
     return v;
+  }
+}
+
+/**
+ * Reachability probe for an OpenAI-compatible local provider. Hits
+ * `${baseUrl}/models` with a short timeout; truthy iff the call
+ * returns 2xx. Both Ollama and vLLM expose this endpoint when
+ * running. Failures are silent — a "not available right now" is
+ * the only piece of data the caller needs.
+ */
+async function probeOpenAICompatible(baseUrl: string): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 1200);
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
+      signal: ctrl.signal,
+      headers: { Authorization: 'Bearer sk-no-auth' },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }

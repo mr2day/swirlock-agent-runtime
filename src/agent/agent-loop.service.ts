@@ -39,7 +39,7 @@ export class AgentLoopService {
       model = this.backends.resolve(input.backend);
       modelId =
         input.backend.model ??
-        this.defaultModelForBackend(input.backend.backend);
+        this.backends.defaultModelFor(input.backend.backend);
     } catch (err) {
       yield {
         kind: 'turn-error',
@@ -168,20 +168,6 @@ export class AgentLoopService {
     }
   }
 
-  private defaultModelForBackend(backend: AgentTurnInput['backend']['backend']): string {
-    switch (backend) {
-      case 'anthropic':
-        return (
-          process.env.ANTHROPIC_DEFAULT_MODEL ?? 'claude-haiku-4-5-20251001'
-        );
-      case 'mistral-online':
-        return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
-      case 'mistral-local':
-        return process.env.VLLM_DEFAULT_MODEL ?? 'ministral-3:14b';
-      case 'ollama-local':
-        return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
-    }
-  }
 }
 
 function errorMessage(err: unknown): string {

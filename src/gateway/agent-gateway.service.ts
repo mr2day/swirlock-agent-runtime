@@ -277,14 +277,25 @@ class Connection {
         return;
       }
 
-      case 'backends.list':
+      case 'backends.list': {
+        const backends = await this.gateway.backendsService.available();
+        // Pre-select the configured default if it's actually
+        // reachable; otherwise fall back to the first reachable
+        // backend. Prevents the UI from showing "Ministral" selected
+        // when Mistral La Plateforme has no key set.
+        const configured = this.gateway.backendsService.defaultBackend();
+        const defaultBackend =
+          backends.find((b) => b.name === configured)?.name ??
+          backends[0]?.name ??
+          configured;
         this.send({
           type: 'backends.list',
           inReplyTo: frame.id,
-          defaultBackend: this.gateway.backendsService.defaultBackend(),
-          backends: this.gateway.backendsService.available(),
+          defaultBackend,
+          backends,
         });
         return;
+      }
 
       case 'session.set_backend': {
         const session = await this.gateway.sessionService.setSessionBackend(

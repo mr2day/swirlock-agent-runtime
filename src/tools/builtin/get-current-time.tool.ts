@@ -26,8 +26,18 @@ export class GetCurrentTimeTool implements OnModuleInit {
   onModuleInit(): void {
     this.registry.register<Input, Output>({
       name: 'get_current_time',
-      description:
-        'Returns the current wall-clock time as ISO 8601, plus the unix epoch seconds. Use this for time-aware reasoning; do not guess.',
+      description: [
+        'Returns the current wall-clock time as ISO 8601, plus unix epoch seconds, in the requested IANA timezone (default UTC).',
+        '',
+        'WHEN TO CALL THIS:',
+        '- The user asks the current time, date, or day of week.',
+        '- The user asks "how long ago" / "how long until" something against the present.',
+        '- Time-aware reasoning where the answer depends on now (e.g. "is this concert tonight?").',
+        '',
+        'WHEN NOT TO CALL THIS:',
+        '- The user provides a specific date/time and you just need to compute against it.',
+        '- Historical dates or relative reasoning that does not need the present moment.',
+      ].join('\n'),
       inputSchema,
       execute: async (input): Promise<Output> => {
         const tz = input.timezone ?? 'UTC';

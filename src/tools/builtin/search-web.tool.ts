@@ -60,8 +60,23 @@ export class SearchWebTool implements OnModuleInit {
 
     this.registry.register<Input, Output>({
       name: 'search_web',
-      description:
-        'Searches the live web via Exa for up-to-date information. Use when the user asks about recent events, real-world facts you may be unsure about, or anything that requires current sources. Returns titles, URLs, publish dates and short snippets.',
+      description: [
+        'Searches the live web via Exa and returns titles, URLs, publish dates, and short snippets.',
+        '',
+        'WHEN TO CALL THIS:',
+        '- The user asks about a recent event, news, release, or announcement.',
+        '- The user asks a current-state question: prices, scores, weather, who currently holds a position, what is the latest version, what are recent reviews of X.',
+        '- The user asks your opinion or impression of a specific real-world thing (a concert, restaurant, product, book, person, place) that you may not have reliable knowledge of.',
+        "- You don't know the answer with confidence and a web search would resolve it.",
+        '- The user explicitly asks you to look something up, search, find, check.',
+        '',
+        'WHEN NOT TO CALL THIS:',
+        '- Stable, well-known facts (capitals, historical dates, definitions, language, math identities, code syntax). Your training data already has these.',
+        '- Casual conversation, jokes, opinions on abstract topics, creative writing, code generation from the user\'s description.',
+        '- When the user has already provided the information you need.',
+        '',
+        "Do not ask permission before calling. Just call and respond. Do not say \"I don't have that information\" — search and find out.",
+      ].join('\n'),
       inputSchema,
       execute: async (input): Promise<Output> => {
         if (!this.exa) {

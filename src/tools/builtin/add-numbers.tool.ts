@@ -23,8 +23,17 @@ export class AddNumbersTool implements OnModuleInit {
   onModuleInit(): void {
     this.registry.register<Input, Output>({
       name: 'add_numbers',
-      description:
-        'Adds an array of numbers and returns the exact sum. Use this when precise arithmetic is required.',
+      description: [
+        'Adds an array of numbers and returns the exact sum.',
+        '',
+        'WHEN TO CALL THIS:',
+        '- The user explicitly asks for a precise sum of many or large numbers where mistakes are costly.',
+        '- The user asks for arithmetic in a context where exactness matters (invoices, totals, balances).',
+        '',
+        'WHEN NOT TO CALL THIS:',
+        '- Trivial arithmetic you can do reliably yourself (single-digit, two two-digit additions, etc.). Calling the tool for "2 + 2" is wasteful.',
+        '- Subtraction, multiplication, division, or any non-addition arithmetic — this tool only adds.',
+      ].join('\n'),
       inputSchema,
       execute: async (input): Promise<Output> => {
         let sum = 0;
