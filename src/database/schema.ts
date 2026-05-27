@@ -51,8 +51,16 @@ export interface SchemaMigrationsTable {
   applied_at: ColumnType<Date, Date | string | undefined, never>;
 }
 
+export interface UserPreferencesTable {
+  client_id: string;
+  user_id: string;
+  default_backend: Backend | null;
+  updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
+}
+
 export interface Database {
   sessions: SessionsTable;
   messages: MessagesTable;
   schema_migrations: SchemaMigrationsTable;
+  user_preferences: UserPreferencesTable;
 }

@@ -45,6 +45,14 @@ export class SessionService {
   constructor(private readonly database: DatabaseService) {}
 
   async createSession(input: CreateSessionInput): Promise<SessionRecord> {
+    // Seed the new session's default_backend from the user's last
+    // explicit choice (if any). The client may still override
+    // explicitly. Falls back to NULL (TurnService resolves NULL to
+    // AGENT_DEFAULT_BACKEND at turn time).
+    const effectiveBackend =
+      input.defaultBackend ??
+      (await this.getUserPreferredBackend(input.clientId, input.userId));
+
     const inserted = await this.database.db
       .insertInto('sessions')
       .values({
@@ -52,12 +60,31 @@ export class SessionService {
         user_id: input.userId,
         title: input.title ?? null,
         system_prompt: input.systemPrompt ?? null,
-        default_backend: input.defaultBackend ?? null,
+        default_backend: effectiveBackend ?? null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
     return this.toSessionRecord(inserted);
+  }
+
+  /**
+   * Returns the user's last-explicitly-chosen backend (via the
+   * sidebar's model picker), or null if they have never switched.
+   * New sessions inherit this so a model pick "sticks" for future
+   * conversations, not just the current one.
+   */
+  async getUserPreferredBackend(
+    clientId: string,
+    userId: string,
+  ): Promise<Backend | null> {
+    const row = await this.database.db
+      .selectFrom('user_preferences')
+      .select('default_backend')
+      .where('client_id', '=', clientId)
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
+    return row?.default_backend ?? null;
   }
 
   async getSession(
@@ -139,10 +166,28 @@ export class SessionService {
     backend: Backend,
   ): Promise<SessionRecord> {
     await this.getSession(sessionId, clientId, userId);
+    // Update the session row (this turn / this conversation) AND
+    // upsert the user's preference (so the NEXT new session inherits
+    // the choice instead of falling back to AGENT_DEFAULT_BACKEND).
     await this.database.db
       .updateTable('sessions')
       .set({ default_backend: backend, updated_at: new Date() })
       .where('id', '=', sessionId)
+      .execute();
+    await this.database.db
+      .insertInto('user_preferences')
+      .values({
+        client_id: clientId,
+        user_id: userId,
+        default_backend: backend,
+        updated_at: new Date(),
+      })
+      .onConflict((oc) =>
+        oc.columns(['client_id', 'user_id']).doUpdateSet({
+          default_backend: backend,
+          updated_at: new Date(),
+        }),
+      )
       .execute();
     return this.getSession(sessionId, clientId, userId);
   }
