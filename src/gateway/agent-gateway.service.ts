@@ -368,6 +368,21 @@ class Connection {
         }
         this.send(translateAgentEvent(evt, frame.id));
       }
+    } catch (err) {
+      // Anything thrown out of the async generator (DB write failure,
+      // unhandled provider error, bad input) lands here. Without this
+      // catch the WS just went silent — the client waited forever for
+      // turn.done / turn.error. Emit an explicit turn.error so the
+      // caller sees the failure and can settle.
+      this.logger.warn(
+        `runTurnStream crashed (turnId=${registeredId || frame.turnId || '?'}): ${errorMessage(err)}`,
+      );
+      this.send({
+        type: 'turn.error',
+        inReplyTo: frame.id,
+        turnId: registeredId || frame.turnId || 'unknown',
+        error: errorMessage(err),
+      });
     } finally {
       if (registeredId) this.activeTurns.delete(registeredId);
     }
