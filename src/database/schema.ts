@@ -15,8 +15,7 @@ export type SessionStatus = 'active' | 'archived' | 'deleted';
 export type Backend =
   | 'anthropic'
   | 'mistral-online'
-  | 'mistral-local'
-  | 'ollama-local';
+  | 'mistral-local';
 
 export interface SessionsTable {
   id: Generated<string>;
