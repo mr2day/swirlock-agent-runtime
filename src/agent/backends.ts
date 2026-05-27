@@ -62,6 +62,29 @@ export class BackendsService {
   });
 
   /**
+   * Set of Ollama model ids that need the repairMistralToolCallText
+   * middleware because they sometimes emit `<tool>[ARGS]{...}` as
+   * plain text (no leading `[TOOL_CALLS]` sentinel) and Ollama's
+   * parser can't extract a structured tool call from that.
+   *
+   * The middleware buffers text-deltas to inspect them, which is
+   * incompatible with token-by-token streaming — so we only apply
+   * it to models that empirically need rescuing. Other models
+   * (qwen3:14b, llama3.1, etc.) get the raw LanguageModel and
+   * stream normally.
+   *
+   * Env-overridable as a comma-separated list; the default keeps
+   * ministral-3:14b in the rescue set since that's where the bug
+   * was observed in our smoke runs.
+   */
+  private readonly ollamaModelsNeedingToolCallRepair = new Set(
+    (process.env.OLLAMA_MODELS_NEEDING_TOOL_CALL_REPAIR ?? 'ministral-3:14b')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+
+  /**
    * Resolve a LanguageModel for the given backend + optional model
    * override. Throws if the backend is configured but lacks a model
    * default, or if a remote backend has no API key in the environment.
@@ -80,16 +103,20 @@ export class BackendsService {
           );
         }
         return this.mistralOnlineFactory(model);
-      case 'ollama-local':
-        // Wrap with the malformed-tool-call repair middleware so
-        // that any model (e.g. ministral-3:14b) which sometimes
-        // emits `<tool>[ARGS]{...}` as plain text instead of the
-        // structured tool_calls field gets corrected before the
-        // agent loop sees the response.
-        return wrapLanguageModel({
-          model: this.ollamaFactory(model),
-          middleware: repairMistralToolCallText(),
-        });
+      case 'ollama-local': {
+        const baseModel = this.ollamaFactory(model);
+        // Only wrap with the malformed-tool-call repair middleware
+        // for models known to need it. Other models stream normally;
+        // wrapping every Ollama model would force-buffer text-deltas
+        // and kill token-by-token streaming for all of them.
+        if (this.ollamaModelsNeedingToolCallRepair.has(model)) {
+          return wrapLanguageModel({
+            model: baseModel,
+            middleware: repairMistralToolCallText(),
+          });
+        }
+        return baseModel;
+      }
       default: {
         const _exhaustive: never = backend;
         void _exhaustive;

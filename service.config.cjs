@@ -94,8 +94,12 @@ module.exports = {
     // works for English but on some Romanian prompts leaks
     // `<tool>[ARGS]{...}` as text without the `[TOOL_CALLS]` opener;
     // the repairMistralToolCallText middleware in backends.ts catches
-    // that as a safety net, but qwen3 doesn't need rescuing.
+    // that, but is only applied to models in the rescue list below.
     OLLAMA_DEFAULT_MODEL: 'qwen3:14b',
+    // Comma-separated list of Ollama model ids that need the
+    // tool-call-text-repair middleware. Append future buggy models
+    // here without a code change.
+    OLLAMA_MODELS_NEEDING_TOOL_CALL_REPAIR: 'ministral-3:14b',
 
     // === Search ===
     // EXA_API_KEY has no default — must be set per-machine.
