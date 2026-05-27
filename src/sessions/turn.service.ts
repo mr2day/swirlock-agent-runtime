@@ -144,6 +144,15 @@ export class TurnService {
     // Per-message attribution survives session.get.
     let attribution: { backend: string; modelId: string } | null = null;
 
+    // The chatbot UI stamps Intl.DateTimeFormat().resolvedOptions().timeZone
+    // into session.client_metadata.timezone at create time. AgentLoopService
+    // uses it to substitute ${currentDate} / ${currentTime} / ${userTimezone}
+    // in the persisted system prompt. Missing → UTC fallback.
+    const tzRaw = (session.clientMetadata as Record<string, unknown> | null)?.[
+      'timezone'
+    ];
+    const userTimezone = typeof tzRaw === 'string' ? tzRaw : undefined;
+
     for await (const event of this.agentLoop.run({
       systemPrompt: session.systemPrompt ?? undefined,
       messages: modelMessages,
@@ -152,6 +161,7 @@ export class TurnService {
       maxSteps: input.maxSteps,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal: input.abortSignal,
+      userTimezone,
     })) {
       yield event;
 

@@ -60,22 +60,27 @@ export class AgentLoopService {
     const hasTools = Object.keys(tools).length > 0;
 
     // Substitute placeholders in the persisted system prompt right
-    // before sending. Two placeholders today:
+    // before sending. Four placeholders today:
     //
-    //   ${model}        the model id about to serve this turn (so a
-    //                   backend switch is immediately reflected in
-    //                   persona introspection — "what model are you
-    //                   based on?" answers truthfully).
-    //   ${currentDate}  today's date in YYYY-MM-DD UTC. Without this
-    //                   the model defaults to its training-era year
-    //                   when forming search queries / reasoning
-    //                   about recency. Industry-standard fix —
-    //                   Claude, ChatGPT, Gemini all inject the date.
-    const today = new Date().toISOString().slice(0, 10);
+    //   ${model}        the model id about to serve this turn.
+    //   ${currentDate}  today's date in the user's timezone (YYYY-MM-DD).
+    //   ${currentTime}  current wall-clock time in the user's timezone
+    //                   (HH:MM:SS).
+    //   ${userTimezone} the user's IANA timezone (e.g. Europe/Bucharest),
+    //                   also a rough location signal.
+    //
+    // The system prompt is stored verbatim with the placeholders; the
+    // substitution happens at each turn so a moved laptop / midnight
+    // crossing / backend swap all reflect immediately.
+    const tz = input.userTimezone || 'UTC';
+    const now = new Date();
+    const { date: currentDate, time: currentTime } = formatNowIn(now, tz);
     const resolvedSystem = input.systemPrompt
       ? input.systemPrompt
           .replace(/\$\{model\}/g, modelId)
-          .replace(/\$\{currentDate\}/g, today)
+          .replace(/\$\{currentDate\}/g, currentDate)
+          .replace(/\$\{currentTime\}/g, currentTime)
+          .replace(/\$\{userTimezone\}/g, tz)
       : undefined;
 
     let result;
@@ -178,6 +183,39 @@ export class AgentLoopService {
     }
   }
 
+}
+
+/**
+ * Format the current moment as date + time strings in a given IANA
+ * timezone. Falls back to UTC if the timezone string is rejected by
+ * the runtime (Intl raises RangeError for unknown ids — we swallow
+ * it so a misconfigured client doesn't crash the loop).
+ */
+function formatNowIn(
+  now: Date,
+  timezone: string,
+): { date: string; time: string } {
+  try {
+    const dateFmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const timeFmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    return { date: dateFmt.format(now), time: timeFmt.format(now) };
+  } catch {
+    return {
+      date: now.toISOString().slice(0, 10),
+      time: now.toISOString().slice(11, 19),
+    };
+  }
 }
 
 function errorMessage(err: unknown): string {

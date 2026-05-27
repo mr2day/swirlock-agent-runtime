@@ -26,6 +26,11 @@ export interface AgentTurnInput {
   // signal tears down the in-flight provider call instead of
   // letting it run to completion and burn tokens.
   abortSignal?: AbortSignal;
+  // IANA timezone of the user, supplied by the client at session
+  // create time. Drives ${currentDate} / ${currentTime} formatting
+  // and is itself substituted as ${userTimezone}. Falls back to
+  // 'UTC' when missing.
+  userTimezone?: string;
 }
 
 /**
