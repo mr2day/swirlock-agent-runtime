@@ -59,13 +59,23 @@ export class AgentLoopService {
     const tools = this.toolRegistry.toToolSet() as ToolSet;
     const hasTools = Object.keys(tools).length > 0;
 
-    // Substitute ${model} in the system prompt with the model that
-    // will actually serve this turn. The placeholder is stored
-    // verbatim on session.system_prompt, so a backend switch is
-    // immediately reflected in the next turn's persona introspection
-    // ("what model are you based on?" answers truthfully).
+    // Substitute placeholders in the persisted system prompt right
+    // before sending. Two placeholders today:
+    //
+    //   ${model}        the model id about to serve this turn (so a
+    //                   backend switch is immediately reflected in
+    //                   persona introspection — "what model are you
+    //                   based on?" answers truthfully).
+    //   ${currentDate}  today's date in YYYY-MM-DD UTC. Without this
+    //                   the model defaults to its training-era year
+    //                   when forming search queries / reasoning
+    //                   about recency. Industry-standard fix —
+    //                   Claude, ChatGPT, Gemini all inject the date.
+    const today = new Date().toISOString().slice(0, 10);
     const resolvedSystem = input.systemPrompt
-      ? input.systemPrompt.replace(/\$\{model\}/g, modelId)
+      ? input.systemPrompt
+          .replace(/\$\{model\}/g, modelId)
+          .replace(/\$\{currentDate\}/g, today)
       : undefined;
 
     let result;
