@@ -1,8 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { Injectable, Logger } from '@nestjs/common';
-import type { LanguageModel } from 'ai';
+import { wrapLanguageModel, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
+import { repairMistralToolCallText } from './tool-call-text-repair';
 
 // Three backends we operate against. The orchestrator picks one per
 // turn (default at the session level, optionally overridden by the
@@ -80,7 +81,15 @@ export class BackendsService {
         }
         return this.mistralOnlineFactory(model);
       case 'ollama-local':
-        return this.ollamaFactory(model);
+        // Wrap with the malformed-tool-call repair middleware so
+        // that any model (e.g. ministral-3:14b) which sometimes
+        // emits `<tool>[ARGS]{...}` as plain text instead of the
+        // structured tool_calls field gets corrected before the
+        // agent loop sees the response.
+        return wrapLanguageModel({
+          model: this.ollamaFactory(model),
+          middleware: repairMistralToolCallText(),
+        });
       default: {
         const _exhaustive: never = backend;
         void _exhaustive;
@@ -167,7 +176,7 @@ export class BackendsService {
       case 'mistral-online':
         return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
       case 'ollama-local':
-        return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
+        return process.env.OLLAMA_DEFAULT_MODEL ?? 'qwen3:14b';
     }
   }
 

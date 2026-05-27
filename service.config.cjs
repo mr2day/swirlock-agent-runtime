@@ -89,7 +89,13 @@ module.exports = {
     // /v1 — because the shim has been known to drop tool-call
     // payloads. The base URL therefore points at the /api root.
     OLLAMA_BASE_URL: 'http://127.0.0.1:11434/api',
-    OLLAMA_DEFAULT_MODEL: 'ministral-3:14b',
+    // qwen3:14b emits structured tool calls reliably across English
+    // and Romanian (verified by smoke-ollama-models). ministral-3:14b
+    // works for English but on some Romanian prompts leaks
+    // `<tool>[ARGS]{...}` as text without the `[TOOL_CALLS]` opener;
+    // the repairMistralToolCallText middleware in backends.ts catches
+    // that as a safety net, but qwen3 doesn't need rescuing.
+    OLLAMA_DEFAULT_MODEL: 'qwen3:14b',
 
     // === Search ===
     // EXA_API_KEY has no default — must be set per-machine.
