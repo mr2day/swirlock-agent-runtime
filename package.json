@@ -13,7 +13,8 @@
     "start:dev": "nest start --watch",
     "typecheck": "tsc --noEmit",
     "db:setup": "node scripts/setup-database.cjs",
-    "db:migrate": "node scripts/migrate.cjs"
+    "db:migrate": "node scripts/migrate.cjs",
+    "eval": "node eval/runner.cjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
