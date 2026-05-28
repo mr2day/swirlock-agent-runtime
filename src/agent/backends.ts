@@ -107,19 +107,26 @@ export class BackendsService {
   async available(): Promise<BackendInfo[]> {
     const list: BackendInfo[] = [];
 
+    // displayName is the model id propagated from the backend's
+    // configuration (env-driven via `defaultModelFor`). No hardcoded
+    // friendly strings — the UI shows the actual model name, and a
+    // model swap on the runtime side surfaces immediately without a
+    // UI redeploy.
     if (process.env.ANTHROPIC_API_KEY) {
+      const modelId = this.defaultModelFor('anthropic');
       list.push({
         name: 'anthropic',
-        displayName: 'Claude Haiku 4.5',
-        defaultModelId: this.defaultModelFor('anthropic'),
+        displayName: modelId,
+        defaultModelId: modelId,
         location: 'cloud',
       });
     }
     if (this.mistralOnlineFactory) {
+      const modelId = this.defaultModelFor('mistral-online');
       list.push({
         name: 'mistral-online',
-        displayName: 'Ministral 14B',
-        defaultModelId: this.defaultModelFor('mistral-online'),
+        displayName: modelId,
+        defaultModelId: modelId,
         location: 'cloud',
       });
     }
@@ -129,10 +136,11 @@ export class BackendsService {
     );
 
     if (ollamaUp) {
+      const modelId = this.defaultModelFor('ollama-local');
       list.push({
         name: 'ollama-local',
-        displayName: 'Ollama (local)',
-        defaultModelId: this.defaultModelFor('ollama-local'),
+        displayName: modelId,
+        defaultModelId: modelId,
         location: 'local',
       });
     }
