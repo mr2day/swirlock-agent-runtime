@@ -174,7 +174,7 @@ export class BackendsService {
       case 'mistral-online':
         return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
       case 'ollama-local':
-        return process.env.OLLAMA_DEFAULT_MODEL ?? 'qwen3:14b';
+        return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
     }
   }
 
