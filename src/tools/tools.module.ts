@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { AddNumbersTool } from './builtin/add-numbers.tool';
+import { FetchPageTool } from './builtin/fetch-page.tool';
 import { GetCurrentTimeTool } from './builtin/get-current-time.tool';
 import { SearchWebTool } from './builtin/search-web.tool';
 import { ToolRegistry } from './tool-registry';
@@ -11,6 +12,7 @@ import { ToolRegistry } from './tool-registry';
     GetCurrentTimeTool,
     AddNumbersTool,
     SearchWebTool,
+    FetchPageTool,
   ],
   exports: [ToolRegistry],
 })

@@ -59,7 +59,7 @@ module.exports = {
     // not named in AGENT_TOOL_QUOTAS_JSON. Set the default to 0 (or
     // negative) to disable quotas entirely.
     AGENT_TOOL_QUOTA_DEFAULT: '5',
-    AGENT_TOOL_QUOTAS_JSON: '{"search_web":5,"get_current_time":3,"add_numbers":3}',
+    AGENT_TOOL_QUOTAS_JSON: '{"search_web":5,"fetch_page":5,"get_current_time":3,"add_numbers":3}',
     // Per (client_id, user_id) daily turn cap. UTC-midnight rolling
     // window. Counted from messages.role='user' rows joined to
     // sessions. Set to 0 (or any non-positive) to disable. 200/day
