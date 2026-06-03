@@ -259,16 +259,14 @@ export class TurnService {
           ? Number(lastSeqRow.max_seq) + 1
           : 1;
 
-      // Strip NUL bytes from every string value reachable through the
-      // message. Postgres TEXT and JSONB both reject   (error
-      // 22025: "unsupported Unicode escape sequence"), and our tool
-      // results occasionally carry one through from Exa's scraped
-      // page text (binary fragments bleeding into HTML extraction).
-      // One null byte anywhere in a 5-call parallel search dispatch
-      // is enough to abort the whole turn, so we sanitize at the
-      // single persistence boundary instead of trusting every tool.
-      const safeContent = stripNullBytes(args.content) as MessageContent;
-      const safeText = stripNullBytesFromString(args.text);
+      // Sanitize every string reachable through the message: NUL
+      // bytes, lone surrogates, Unicode noncharacters, BiDi override
+      // controls, and stray C0 controls. The first two would crash a
+      // Postgres JSONB insert outright (error 22025); the rest are
+      // display / security risks we strip at the single persistence
+      // boundary instead of trusting every tool.
+      const safeContent = sanitizeForStorage(args.content) as MessageContent;
+      const safeText = sanitizeString(args.text);
 
       await trx
         .insertInto('messages')
@@ -306,28 +304,83 @@ export class TurnService {
 }
 
 /**
- * Recursively strip Postgres-forbidden NUL bytes ( ) from every
- * string reachable inside a value. Walks plain objects + arrays
- * cheaply (no JSON round-trip). Non-string, non-container values
- * pass through unchanged. Used at the persistence boundary so a
- * single binary byte in an Exa search snippet can't crash a whole
- * agent turn.
+ * Recursively strip characters that cannot safely round-trip through
+ * Postgres or that have no legitimate use in agent conversation text.
+ * Walks plain objects + arrays cheaply (no JSON round-trip). Non-string,
+ * non-container values pass through unchanged.
+ *
+ * Stripped at this boundary:
+ *   - U+0000 NUL                       Postgres TEXT/JSONB hard reject.
+ *   - U+D800..U+DFFF lone surrogates   Postgres JSONB also rejects these;
+ *                                      invalid UTF-8 anyway.
+ *   - U+FFFE, U+FFFF                   BMP noncharacters.
+ *   - U+FDD0..U+FDEF                   Arabic-block noncharacters.
+ *   - U+xFFFE, U+xFFFF (planes 1..16)  supplementary-plane noncharacters.
+ *   - U+202A..U+202E, U+2066..U+2069   BiDi override / isolate controls
+ *                                      (URL homograph attacks).
+ *   - U+0001..U+001F except 0x09 0x0A 0x0D   C0 controls (binary leakage).
+ *
+ * Intentionally kept: U+0080..U+009F (C1 controls), U+FEFF (BOM),
+ * U+200B..U+200F (ZWJ/ZWNJ/LRM/RLM) - legitimate in Arabic, Devanagari, etc.
  */
-function stripNullBytes(value: unknown): unknown {
-  if (typeof value === 'string') return stripNullBytesFromString(value);
-  if (Array.isArray(value)) return value.map(stripNullBytes);
+function sanitizeForStorage(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeString(value);
+  if (Array.isArray(value)) return value.map(sanitizeForStorage);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = stripNullBytes(v);
+      out[k] = sanitizeForStorage(v);
     }
     return out;
   }
   return value;
 }
 
-function stripNullBytesFromString(s: string): string {
-  return s.indexOf(' ') === -1 ? s : s.replace(/ /g, '');
+// Build the forbidden-character regex from numeric code points so the
+// source file itself stays free of bare control / surrogate / noncharacter
+// bytes - which are exactly the bytes that break editors, diff tools, and
+// Postgres in the first place.
+function codePointToEscape(cp: number): string {
+  return '\\u' + cp.toString(16).padStart(4, '0');
+}
+
+const FORBIDDEN_BMP = (() => {
+  const e = codePointToEscape;
+  const cls = [
+    e(0x0000) + '-' + e(0x0008), // C0 incl. NUL, up to backspace
+    e(0x000B),                    // C0: vertical tab (skip 0x09/0x0A: tab+LF)
+    e(0x000C),                    // C0: form feed (skip 0x0D: CR)
+    e(0x000E) + '-' + e(0x001F), // rest of C0 below SP
+    e(0xD800) + '-' + e(0xDFFF), // lone surrogates
+    e(0xFDD0) + '-' + e(0xFDEF), // Arabic-block noncharacters
+    e(0xFFFE) + e(0xFFFF),       // BMP noncharacters
+    e(0x202A) + '-' + e(0x202E), // BiDi override
+    e(0x2066) + '-' + e(0x2069), // BiDi isolate
+  ].join('');
+  return new RegExp('[' + cls + ']', 'g');
+})();
+
+// Supplementary-plane noncharacters U+1FFFE / U+1FFFF / U+2FFFE / ...
+// U+10FFFE / U+10FFFF appear in UTF-16 as any high surrogate followed by
+// low surrogate U+DFFE or U+DFFF.
+const FORBIDDEN_SUPPLEMENTARY = (() => {
+  const e = codePointToEscape;
+  return new RegExp(
+    '[' + e(0xD800) + '-' + e(0xDBFF) + ']' +
+    '[' + e(0xDFFE) + e(0xDFFF) + ']',
+    'g',
+  );
+})();
+
+function sanitizeString(s: string): string {
+  // Fast path: most strings are clean. A single test beats two replace
+  // passes on every persisted value.
+  if (!FORBIDDEN_BMP.test(s) && !FORBIDDEN_SUPPLEMENTARY.test(s)) {
+    return s;
+  }
+  FORBIDDEN_BMP.lastIndex = 0;
+  FORBIDDEN_SUPPLEMENTARY.lastIndex = 0;
+  return s.replace(FORBIDDEN_BMP, '').replace(FORBIDDEN_SUPPLEMENTARY, '');
 }
 
 /**

@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import Exa from 'exa-js';
 import { z } from 'zod';
+import { SearchRerankerService } from '../search-reranker.service';
 import { ToolRegistry } from '../tool-registry';
 
 const inputSchema = z.object({
@@ -42,7 +43,10 @@ export class SearchWebTool implements OnModuleInit {
   private readonly logger = new Logger(SearchWebTool.name);
   private exa: Exa | null = null;
 
-  constructor(private readonly registry: ToolRegistry) {}
+  constructor(
+    private readonly registry: ToolRegistry,
+    private readonly reranker: SearchRerankerService,
+  ) {}
 
   onModuleInit(): void {
     const key = process.env.EXA_API_KEY;
@@ -122,7 +126,12 @@ export class SearchWebTool implements OnModuleInit {
           };
         });
 
-        return { query: input.query, results };
+        // Per-backend reranking runs only when SEARCH_RERANK_ENABLED=true;
+        // when disabled (the default) the helper no-ops and returns the
+        // candidates unchanged in zero time, so this branch is effectively
+        // free in the off configuration.
+        const rerank = await this.reranker.rerank(input.query, results);
+        return { query: input.query, results: rerank.results };
       },
     });
   }
