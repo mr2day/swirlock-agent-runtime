@@ -170,10 +170,10 @@ async function scenario_backends_dynamic(c) {
   const reply = await c.request('b1', 'backends.list', 'backends.list');
   const names = reply.backends.map((b) => b.name);
   const hasAnthropic = names.includes('anthropic');
-  const noVllm = !names.includes('mistral-local');
+  const hasMistralOnline = names.includes('mistral-online');
   record(
-    '01 backends list reflects reality (anthropic in, vLLM out)',
-    hasAnthropic && noVllm,
+    '01 backends list reflects reality (anthropic + mistral-online available)',
+    hasAnthropic && hasMistralOnline,
     `got=${JSON.stringify(names)} default=${reply.defaultBackend}`,
   );
   return reply;

@@ -84,12 +84,12 @@ export class BackendsService {
       case 'ollama-local': {
         // Tell Ollama to load this model with a num_ctx of
         // OLLAMA_NUM_CTX (default 12288). Ollama's default global
-        // num_ctx is only 2048, which is dwarfed by our system prompt
+        // num_ctx is only 4096, which is dwarfed by our system prompt
         // + tool descriptions + tool results, causing the front of
-        // long prompts to be silently truncated. 12288 matches the
-        // empirically-verified upper bound for a 14B-class Q4 model
-        // on 16 GB VRAM (the same number we used for vLLM's
-        // max-model-len).
+        // long prompts to be silently truncated. 12288 is the
+        // empirically-verified ceiling for a 14B-class Q4 model on
+        // 16 GB VRAM — at this context the weights + KV cache + CUDA
+        // workspace fit comfortably, leaving headroom for the OS.
         const numCtx = Number(process.env.OLLAMA_NUM_CTX ?? '12288');
         const baseModel = this.ollamaFactory.chat(model, {
           options: { num_ctx: numCtx },

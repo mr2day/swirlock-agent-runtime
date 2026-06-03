@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Side-by-side comparison of the three configured backends
- * (anthropic, mistral-online, mistral-local via vLLM) on two
+ * (anthropic, mistral-online, ollama-local) on two
  * grounding-sensitive prompts:
  *
  *   - Romanian: "ce parere ai despre concertul lui Max Korzh la Bucuresti?"

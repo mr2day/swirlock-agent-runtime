@@ -84,10 +84,11 @@ module.exports = {
     OLLAMA_BASE_URL: 'http://127.0.0.1:11434/api',
     // Per-request num_ctx sent to Ollama. The model itself can
     // handle 262144 tokens, but Ollama defaults to a global
-    // num_ctx of 2048 unless told otherwise — which silently
-    // truncates the front of every long prompt. 12288 matches the
-    // empirically-verified vLLM ceiling on this hardware (14B-
-    // class Q4 weights + KV cache on 16 GB VRAM).
+    // num_ctx of 4096 unless told otherwise — which silently
+    // truncates the front of every long prompt. 12288 is the
+    // empirically-verified ceiling for a 14B-class Q4 model on
+    // 16 GB VRAM (weights + KV cache + CUDA workspace fit
+    // comfortably and leave room for the OS display).
     OLLAMA_NUM_CTX: '12288',
     // ministral-3:14b is the local default; the
     // repairMistralToolCallText middleware (gated on the model id
