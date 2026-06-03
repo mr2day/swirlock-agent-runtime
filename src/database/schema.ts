@@ -70,9 +70,27 @@ export interface UserPreferencesTable {
   updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 
+/**
+ * One compaction block. Covers a contiguous range of `messages.seq`
+ * values within a single session that the compactor has rolled up
+ * into a single summary. Originals stay in `messages`; this row is
+ * a layer on top of them. See migration 0010 for the full rationale.
+ */
+export interface SessionSummariesTable {
+  id: Generated<string>;
+  session_id: string;
+  start_seq: ColumnType<string, number | bigint, never>;
+  end_seq: ColumnType<string, number | bigint, never>;
+  summary_text: string;
+  token_count: number;
+  summary_model: string;
+  created_at: ColumnType<Date, Date | string | undefined, never>;
+}
+
 export interface Database {
   sessions: SessionsTable;
   messages: MessagesTable;
   schema_migrations: SchemaMigrationsTable;
   user_preferences: UserPreferencesTable;
+  session_summaries: SessionSummariesTable;
 }

@@ -103,6 +103,23 @@ export class TurnService {
       input.userId,
     );
 
+    // Layered summaries (if any) for this session. Each block
+    // covers a contiguous range of message seqs that we will skip
+    // from the verbatim history and replace with one synthetic
+    // system message ("[Summary of earlier turns N..M]: ..."),
+    // injected ahead of the still-verbatim tail. See
+    // CompactorService for how blocks are produced.
+    const summaries = await this.database.db
+      .selectFrom('session_summaries')
+      .select(['start_seq', 'end_seq', 'summary_text'])
+      .where('session_id', '=', input.sessionId)
+      .orderBy('start_seq', 'asc')
+      .execute();
+    const lastSummarisedSeq =
+      summaries.length > 0
+        ? Math.max(...summaries.map((s) => Number(s.end_seq)))
+        : 0;
+
     // 1. Persist the user message under the next seq.
     const nextSeq = await this.appendMessage({
       sessionId: input.sessionId,
@@ -129,31 +146,38 @@ export class TurnService {
         .execute();
     }
 
-    // 2. Build the ModelMessage[] history for the loop, with a
-    // sliding-window cap so token cost doesn't grow linearly with
-    // conversation length. We keep:
-    //   - the very first user message (preserves the original
-    //     framing the model anchored on at turn 1), and
-    //   - the last AGENT_HISTORY_KEEP_LAST_MESSAGES messages
-    //     (default 20: roughly the last 10 user→assistant exchanges,
-    //     including any tool-call / tool-result interleavings).
-    // Anything in between is dropped. The current user's new message
-    // is then appended.
+    // 2. Build the ModelMessage[] history for the loop. Three layers:
+    //   (a) Summary blocks (oldest first) as synthetic system msgs.
+    //   (b) The verbatim tail — every message with seq strictly above
+    //       the highest summarised seq. The compactor's job is to keep
+    //       this tail within budget; we trust it and send it as-is
+    //       rather than re-pruning client-side.
+    //   (c) The current user message.
+    // The legacy AGENT_HISTORY_KEEP_LAST_MESSAGES sliding-window prune
+    // stays as a belt-and-braces cap for sessions that haven't yet
+    // had a compaction pass — e.g. brand-new long bursts before the
+    // scheduler runs.
     const keepLast = Math.max(
       1,
       Number(process.env.AGENT_HISTORY_KEEP_LAST_MESSAGES ?? '20'),
     );
+    const verbatimHistory = history.filter((m) => m.seq > lastSummarisedSeq);
     const prunedHistory =
-      history.length <= keepLast + 1
-        ? history
+      verbatimHistory.length <= keepLast + 1
+        ? verbatimHistory
         : (() => {
-            const first = history[0];
-            const tail = history.slice(-keepLast);
-            // Avoid duplicating the first row if it's already in the tail.
+            const first = verbatimHistory[0];
+            const tail = verbatimHistory.slice(-keepLast);
             return tail[0]?.seq === first.seq ? tail : [first, ...tail];
           })();
 
     const modelMessages: ModelMessage[] = [];
+    for (const s of summaries) {
+      modelMessages.push({
+        role: 'system',
+        content: `[Summary of earlier turns ${s.start_seq}-${s.end_seq}]\n${s.summary_text}`,
+      });
+    }
     for (const m of prunedHistory) {
       modelMessages.push(toModelMessage(m.role, m.content));
     }

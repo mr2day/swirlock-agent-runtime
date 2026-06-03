@@ -13,6 +13,7 @@ import {
   type SessionRecord,
 } from '../sessions/session.service';
 import { TurnService } from '../sessions/turn.service';
+import { ActiveSessionsService } from '../sessions/active-sessions.service';
 import type {
   ClientFrame,
   PublicMessage,
@@ -43,6 +44,7 @@ export class AgentGatewayService implements OnApplicationShutdown {
     private readonly sessions: SessionService,
     private readonly turns: TurnService,
     private readonly backends: BackendsService,
+    private readonly active: ActiveSessionsService,
   ) {}
 
   attach(httpServer: HttpServer): void {
@@ -92,6 +94,9 @@ export class AgentGatewayService implements OnApplicationShutdown {
   }
   get backendsService(): BackendsService {
     return this.backends;
+  }
+  get activeSessions(): ActiveSessionsService {
+    return this.active;
   }
 }
 
@@ -382,6 +387,11 @@ class Connection {
     let registeredId = frame.turnId ?? '';
     if (registeredId) this.activeTurns.set(registeredId, controller);
 
+    // Mark this session as in-flight so the background compaction
+    // scheduler skips it; cleared in the `finally` below regardless
+    // of how the turn ends (completion, error, abort).
+    this.gateway.activeSessions.markActive(frame.sessionId);
+
     const events = this.gateway.turnService.runTurn({
       sessionId: frame.sessionId,
       clientId,
@@ -421,6 +431,7 @@ class Connection {
       });
     } finally {
       if (registeredId) this.activeTurns.delete(registeredId);
+      this.gateway.activeSessions.markIdle(frame.sessionId);
     }
   }
 
