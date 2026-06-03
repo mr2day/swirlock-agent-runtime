@@ -68,6 +68,19 @@ export interface ClientTurnCancelFrame extends ClientFrameBase {
   turnId: string;
 }
 
+/**
+ * Fetch the original messages of a contiguous seq range — used by
+ * the UI's "expand summary block" affordance. The compactor leaves
+ * the originals in `messages`; this lets the client pull them on
+ * demand without bloating session.detail with everything every time.
+ */
+export interface ClientMessagesFetchRangeFrame extends ClientFrameBase {
+  type: 'messages.fetch_range';
+  sessionId: string;
+  startSeq: number;
+  endSeq: number;
+}
+
 export type ClientFrame =
   | ClientAuthFrame
   | ClientSessionCreateFrame
@@ -77,7 +90,8 @@ export type ClientFrame =
   | ClientSessionSetBackendFrame
   | ClientBackendsListFrame
   | ClientTurnSubmitFrame
-  | ClientTurnCancelFrame;
+  | ClientTurnCancelFrame
+  | ClientMessagesFetchRangeFrame;
 
 // =====================================================================
 // SERVER -> CLIENT envelopes
@@ -105,10 +119,22 @@ export type ServerFrame =
       type: 'session.detail';
       session: PublicSession;
       messages: PublicMessage[];
+      /** Layered compaction summaries for this session, oldest first.
+       *  Each block covers a contiguous seq range from the messages
+       *  array; the UI renders them as collapsed bubbles and the
+       *  agent loop replaces those ranges with the summary text
+       *  when assembling a turn's model context. Empty for sessions
+       *  that have never been compacted. */
+      summaries: PublicSummary[];
     })
   | (ServerFrameBase & {
       type: 'session.archived';
       sessionId: string;
+    })
+  | (ServerFrameBase & {
+      type: 'messages.range';
+      sessionId: string;
+      messages: PublicMessage[];
     })
   | (ServerFrameBase & {
       type: 'backends.list';
@@ -189,6 +215,16 @@ export interface PublicSession {
   /** Echoed back from session.create — clients use this to tell
    *  their own UI scope apart (the agent doesn't interpret it). */
   clientMetadata: Record<string, unknown> | null;
+}
+
+export interface PublicSummary {
+  id: string;
+  startSeq: number;
+  endSeq: number;
+  summaryText: string;
+  tokenCount: number;
+  summaryModel: string;
+  createdAt: string;
 }
 
 export interface PublicMessage {

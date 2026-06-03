@@ -282,15 +282,41 @@ class Connection {
           clientId,
           userId,
         );
-        const messages = await this.gateway.sessionService.getMessages(
-          frame.sessionId,
-          clientId,
-          userId,
-        );
+        const [messages, summaries] = await Promise.all([
+          this.gateway.sessionService.getMessages(
+            frame.sessionId,
+            clientId,
+            userId,
+          ),
+          this.gateway.sessionService.getSummaries(
+            frame.sessionId,
+            clientId,
+            userId,
+          ),
+        ]);
         this.send({
           type: 'session.detail',
           inReplyTo: frame.id,
           session: toPublicSession(session),
+          messages: messages.map(toPublicMessage),
+          summaries: summaries.map(toPublicSummary),
+        });
+        return;
+      }
+
+      case 'messages.fetch_range': {
+        const messages =
+          await this.gateway.sessionService.getMessagesInRange(
+            frame.sessionId,
+            clientId,
+            userId,
+            frame.startSeq,
+            frame.endSeq,
+          );
+        this.send({
+          type: 'messages.range',
+          inReplyTo: frame.id,
+          sessionId: frame.sessionId,
           messages: messages.map(toPublicMessage),
         });
         return;
@@ -604,6 +630,20 @@ function toPublicMessage(m: MessageRecord): PublicMessage {
     seq: m.seq,
     createdAt: m.createdAt.toISOString(),
     metadata: m.metadata,
+  };
+}
+
+function toPublicSummary(
+  s: import('../sessions/session.service').SummaryRecord,
+): import('./protocol').PublicSummary {
+  return {
+    id: s.id,
+    startSeq: s.startSeq,
+    endSeq: s.endSeq,
+    summaryText: s.summaryText,
+    tokenCount: s.tokenCount,
+    summaryModel: s.summaryModel,
+    createdAt: s.createdAt.toISOString(),
   };
 }
 

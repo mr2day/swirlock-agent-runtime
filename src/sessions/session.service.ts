@@ -34,6 +34,17 @@ export interface MessageRecord {
   createdAt: Date;
 }
 
+export interface SummaryRecord {
+  id: string;
+  sessionId: string;
+  startSeq: number;
+  endSeq: number;
+  summaryText: string;
+  tokenCount: number;
+  summaryModel: string;
+  createdAt: Date;
+}
+
 export interface CreateSessionInput {
   clientId: string;
   userId: string;
@@ -166,6 +177,62 @@ export class SessionService {
       .execute();
 
     return rows.map((r) => this.toMessageRecord(r));
+  }
+
+  /**
+   * Inclusive seq-range read. Used by the UI's "expand summary block"
+   * affordance: the user clicks a collapsed summary, the UI sends
+   * messages.fetch_range with the block's [startSeq, endSeq], and the
+   * agent returns the original verbatim messages so they can be
+   * rendered inline. Ownership is verified before the read.
+   */
+  async getMessagesInRange(
+    sessionId: string,
+    clientId: string,
+    userId: string,
+    startSeq: number,
+    endSeq: number,
+  ): Promise<MessageRecord[]> {
+    await this.getSession(sessionId, clientId, userId);
+    if (endSeq < startSeq) return [];
+    const rows = await this.database.db
+      .selectFrom('messages')
+      .selectAll()
+      .where('session_id', '=', sessionId)
+      .where('seq', '>=', sql<string>`${startSeq}::bigint`)
+      .where('seq', '<=', sql<string>`${endSeq}::bigint`)
+      .orderBy('seq', 'asc')
+      .execute();
+    return rows.map((r) => this.toMessageRecord(r));
+  }
+
+  /**
+   * Layered compaction summaries for a session, oldest first.
+   * Returned to the UI as part of session.detail; consumed by
+   * turn.service when building the per-turn model history.
+   */
+  async getSummaries(
+    sessionId: string,
+    clientId: string,
+    userId: string,
+  ): Promise<SummaryRecord[]> {
+    await this.getSession(sessionId, clientId, userId);
+    const rows = await this.database.db
+      .selectFrom('session_summaries')
+      .selectAll()
+      .where('session_id', '=', sessionId)
+      .orderBy('start_seq', 'asc')
+      .execute();
+    return rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      startSeq: Number(r.start_seq),
+      endSeq: Number(r.end_seq),
+      summaryText: r.summary_text,
+      tokenCount: r.token_count,
+      summaryModel: r.summary_model,
+      createdAt: r.created_at,
+    }));
   }
 
   async archiveSession(
