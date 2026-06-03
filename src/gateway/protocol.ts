@@ -168,7 +168,6 @@ export type ServerFrame =
       stopReason?:
         | 'completed'
         | 'step-budget'
-        | 'tool-quota'
         | 'repeat-tool-call';
       stopDetail?: string;
     })

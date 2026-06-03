@@ -5,42 +5,7 @@ import { BackendsService } from './backends';
 import { ToolRegistry } from '../tools/tool-registry';
 import type { AgentEvent, AgentTurnInput } from './agent.types';
 
-type StopReason = 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call';
-
-interface ToolQuotaConfig {
-  default: number;
-  perTool: Record<string, number>;
-}
-
-/**
- * Per-tool call quotas. A tool can be called at most N times per turn;
- * once exceeded, the agent loop stops with stopReason='tool-quota' so
- * a model stuck retrying the same tool can't drain the global step
- * budget. Configured by:
- *
- *   AGENT_TOOL_QUOTA_DEFAULT  default quota for any tool (default 5;
- *                             set to 0 or negative to disable quotas)
- *   AGENT_TOOL_QUOTAS_JSON    JSON object with per-tool overrides,
- *                             e.g. '{"search_web":5,"get_current_time":3}'
- */
-function parseToolQuotas(): ToolQuotaConfig {
-  const defaultQuota = Number(process.env.AGENT_TOOL_QUOTA_DEFAULT ?? '5');
-  const json = process.env.AGENT_TOOL_QUOTAS_JSON;
-  const perTool: Record<string, number> = {};
-  if (json) {
-    try {
-      const parsed = JSON.parse(json);
-      if (parsed && typeof parsed === 'object') {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === 'number' && Number.isFinite(v)) perTool[k] = v;
-        }
-      }
-    } catch {
-      // ignore malformed JSON — every tool falls back to default
-    }
-  }
-  return { default: defaultQuota, perTool };
-}
+type StopReason = 'completed' | 'step-budget' | 'repeat-tool-call';
 
 /**
  * Single-turn agent loop. Resolves the requested backend, streams the
@@ -105,31 +70,7 @@ export class AgentLoopService {
     let stopReason: StopReason = 'completed';
     let stopDetail: string | undefined;
 
-    const quotas = parseToolQuotas();
-    const toolCounts: Record<string, number> = {};
     let lastToolCallSig: string | null = null;
-
-    // Per-tool quota: a single tool can be called at most N times per
-    // turn (configurable, see parseToolQuotas). Catches "model
-    // hammers search_web with slightly different queries forever"
-    // failure mode earlier than the global step budget would.
-    const quotaCondition = ({ steps }: { steps: ReadonlyArray<{
-      toolCalls?: ReadonlyArray<{ toolName: string }>;
-    }> }): boolean => {
-      const last = steps[steps.length - 1];
-      if (!last?.toolCalls) return false;
-      for (const tc of last.toolCalls) {
-        const name = tc.toolName;
-        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
-        const quota = quotas.perTool[name] ?? quotas.default;
-        if (quota > 0 && toolCounts[name] > quota) {
-          stopReason = 'tool-quota';
-          stopDetail = `tool ${name} called ${toolCounts[name]}× (quota ${quota})`;
-          return true;
-        }
-      }
-      return false;
-    };
 
     // Repeat-tool-call detection: if the model emits the same tool
     // with byte-identical arguments twice in a row, stop. The
@@ -183,14 +124,13 @@ export class AgentLoopService {
         system: resolvedSystem,
         messages: input.messages,
         tools: hasTools ? tools : undefined,
-        // Three stop conditions, evaluated after each step:
+        // Two stop conditions, evaluated after each step:
         //   1. stepCountIs(maxSteps)      — global step budget
-        //   2. per-tool quota             — catches per-tool runaway
-        //   3. repeat-call detection      — catches model loops
+        //   2. repeat-call detection      — catches model loops on
+        //                                   byte-identical args
         // Whichever fires first sets stopReason via closure capture.
         stopWhen: [
           stepCountIs(maxSteps),
-          quotaCondition,
           repeatCondition,
         ],
         maxOutputTokens,
