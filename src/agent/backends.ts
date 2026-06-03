@@ -47,6 +47,31 @@ export interface BackendInfo {
   location: 'cloud' | 'local';
 }
 
+/**
+ * Map from a restricted backend name to the env var that holds the
+ * comma-separated IdP `sub` allowlist. A user not on the allowlist
+ * cannot see or use the backend. Used to gate the expensive Anthropic
+ * tiers (Opus today) so a multi-tenant install can keep the model
+ * available to the operator without exposing it to every signed-in
+ * user.
+ *
+ * The allowlist is empty by default — restricted backends are
+ * "nobody allowed" until the operator drops their own `sub` into the
+ * env var.
+ */
+const RESTRICTED_BACKEND_ALLOWLISTS: Partial<Record<BackendId, string>> = {
+  'anthropic-opus': 'AGENT_OPUS_ALLOWED_USERS',
+};
+
+function readAllowedSubs(envName: string): Set<string> {
+  return new Set(
+    (process.env[envName] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
 @Injectable()
 export class BackendsService {
   private readonly logger = new Logger(BackendsService.name);
@@ -115,12 +140,42 @@ export class BackendsService {
   }
 
   /**
+   * Returns the per-user filtered list of backends — same shape as
+   * `available()`, but any backend in `RESTRICTED_BACKEND_ALLOWLISTS`
+   * is hidden from a user whose `sub` isn't on the named env-var
+   * allowlist. Callers that have an authenticated user identity
+   * (the gateway, every WS-bound flow) should use this; eval scripts
+   * and dev probes can keep using `available()` to see everything.
+   */
+  async availableForUser(userSub: string | undefined): Promise<BackendInfo[]> {
+    const all = await this.available();
+    return all.filter((b) => this.isBackendAllowedForUser(b.name, userSub));
+  }
+
+  /**
+   * Hard gate that callers must run before resolving a restricted
+   * backend on behalf of a user. Throws `Error` (turned into a
+   * turn-error or session-error frame upstream) when the user is
+   * not authorised. Non-restricted backends always pass.
+   */
+  isBackendAllowedForUser(backend: BackendId, userSub: string | undefined): boolean {
+    const envName = RESTRICTED_BACKEND_ALLOWLISTS[backend];
+    if (!envName) return true; // backend isn't restricted
+    if (!userSub) return false; // restricted backend, unauthenticated caller
+    return readAllowedSubs(envName).has(userSub);
+  }
+
+  /**
    * Lists every backend the runtime can actually serve right now.
    * Cloud backends (anthropic, mistral-online) are gated by their
    * API key env var. The local backend (ollama-local) is probed
    * against Ollama's native /api/tags endpoint — if Ollama isn't
    * running, ollama-local disappears from the UI picker. No
    * hardcoded "this is always available" assumptions.
+   *
+   * Note: this method returns the unfiltered list. WS-bound callers
+   * with an authenticated user identity should call
+   * `availableForUser(sub)` instead so per-user restrictions apply.
    */
   async available(): Promise<BackendInfo[]> {
     const list: BackendInfo[] = [];

@@ -113,6 +113,31 @@ class Connection {
    */
   private readonly activeTurns = new Map<string, AbortController>();
 
+  /**
+   * Bounce a restricted-backend request that the authenticated user
+   * isn't allowed to issue. Emits a typed error frame and throws so
+   * the dispatcher's caller stops processing the frame. Used by
+   * session.create / session.set_backend / turn.submit before any
+   * DB write or provider call happens.
+   */
+  private assertBackendAllowed(
+    backend: import('../agent/backends').BackendId,
+    userSub: string,
+    frameId: string | undefined,
+  ): void {
+    if (
+      !this.gateway.backendsService.isBackendAllowedForUser(backend, userSub)
+    ) {
+      this.send({
+        type: 'error',
+        inReplyTo: frameId,
+        code: 'backend_not_allowed',
+        message: `backend ${backend} is not available for this account`,
+      });
+      throw new Error(`backend ${backend} not allowed for sub=${userSub}`);
+    }
+  }
+
   constructor(
     private readonly socket: WebSocket,
     private readonly gateway: AgentGatewayService,
@@ -210,6 +235,9 @@ class Connection {
         return;
 
       case 'session.create': {
+        if (frame.defaultBackend) {
+          this.assertBackendAllowed(frame.defaultBackend, userId, frame.id);
+        }
         const session = await this.gateway.sessionService.createSession({
           clientId,
           userId,
@@ -278,11 +306,15 @@ class Connection {
       }
 
       case 'backends.list': {
-        const backends = await this.gateway.backendsService.available();
+        // Per-user filtered list — restricted backends (Opus today)
+        // are hidden from anyone whose `sub` isn't on the operator's
+        // allowlist.
+        const backends = await this.gateway.backendsService.availableForUser(userId);
         // Pre-select the configured default if it's actually
-        // reachable; otherwise fall back to the first reachable
-        // backend. Prevents the UI from showing "Ministral" selected
-        // when Mistral La Plateforme has no key set.
+        // reachable AND visible to this user; otherwise fall back to
+        // the first reachable visible backend. Prevents the UI from
+        // showing "Ministral" selected when Mistral La Plateforme has
+        // no key set, or showing Opus selected for a non-allowed user.
         const configured = this.gateway.backendsService.defaultBackend();
         const defaultBackend =
           backends.find((b) => b.name === configured)?.name ??
@@ -298,6 +330,7 @@ class Connection {
       }
 
       case 'session.set_backend': {
+        this.assertBackendAllowed(frame.backend, userId, frame.id);
         const session = await this.gateway.sessionService.setSessionBackend(
           frame.sessionId,
           clientId,
@@ -313,6 +346,9 @@ class Connection {
       }
 
       case 'turn.submit': {
+        if (frame.backend) {
+          this.assertBackendAllowed(frame.backend.backend, userId, frame.id);
+        }
         await this.runTurnStream(clientId, userId, frame);
         return;
       }
