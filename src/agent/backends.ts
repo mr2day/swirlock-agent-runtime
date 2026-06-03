@@ -187,11 +187,11 @@ export class BackendsService {
   async available(): Promise<BackendInfo[]> {
     const list: BackendInfo[] = [];
 
-    // displayName is the model id propagated from the backend's
-    // configuration (env-driven via `defaultModelFor`). No hardcoded
-    // friendly strings — the UI shows the actual model name, and a
-    // model swap on the runtime side surfaces immediately without a
-    // UI redeploy.
+    // displayName is the human-readable label the UI picker shows
+    // (e.g. "Claude Opus 4.7"). Distinct from defaultModelId, which
+    // is the raw provider ID sent over the wire (e.g. "claude-opus-4-7").
+    // Friendly names come from `displayNameFor`, which is env-overridable
+    // per backend so a deployment can rename without a code change.
     if (process.env.ANTHROPIC_API_KEY) {
       // Three Anthropic entries — same provider, three different
       // model ids — so the user can pick smarter-but-pricier on a
@@ -201,7 +201,7 @@ export class BackendsService {
         const modelId = this.defaultModelFor(name);
         list.push({
           name,
-          displayName: modelId,
+          displayName: this.displayNameFor(name, modelId),
           defaultModelId: modelId,
           location: 'cloud',
         });
@@ -219,7 +219,7 @@ export class BackendsService {
         const modelId = this.defaultModelFor(name);
         list.push({
           name,
-          displayName: modelId,
+          displayName: this.displayNameFor(name, modelId),
           defaultModelId: modelId,
           location: 'cloud',
         });
@@ -234,7 +234,7 @@ export class BackendsService {
       const modelId = this.defaultModelFor('ollama-local');
       list.push({
         name: 'ollama-local',
-        displayName: modelId,
+        displayName: this.displayNameFor('ollama-local', modelId),
         defaultModelId: modelId,
         location: 'local',
       });
@@ -272,6 +272,40 @@ export class BackendsService {
    * override is set), and by AgentLoopService for turn-accepted
    * attribution. Env-overridable at every backend.
    */
+  /**
+   * Human-readable label for the model the picker / attribution line
+   * should show. The raw provider ID (`claude-opus-4-7`,
+   * `ministral-14b-latest`, …) is unfriendly noise to a non-technical
+   * reader; this method returns the same model as the human-spelled
+   * marketing name (`Claude Opus 4.7`, `Ministral 14B`).
+   *
+   * For the Ollama backend we pass the model id through unchanged —
+   * Ollama's catalog already uses the human name as the identifier
+   * (e.g. `ministral-3:14b`), so re-spelling it would be wrong.
+   *
+   * Every cloud entry is env-overridable so a deployment can rename
+   * without a code change, matching how `defaultModelFor` is
+   * overridable for the raw ID.
+   */
+  displayNameFor(backend: BackendId, modelId: string): string {
+    switch (backend) {
+      case 'anthropic':
+        return process.env.ANTHROPIC_DISPLAY_NAME ?? 'Claude Haiku 4.5';
+      case 'anthropic-sonnet':
+        return process.env.ANTHROPIC_SONNET_DISPLAY_NAME ?? 'Claude Sonnet 4.6';
+      case 'anthropic-opus':
+        return process.env.ANTHROPIC_OPUS_DISPLAY_NAME ?? 'Claude Opus 4.7';
+      case 'mistral-online':
+        return process.env.MISTRAL_DISPLAY_NAME ?? 'Ministral 14B';
+      case 'mistral-medium':
+        return process.env.MISTRAL_MEDIUM_DISPLAY_NAME ?? 'Mistral Medium 3.5';
+      case 'mistral-large':
+        return process.env.MISTRAL_LARGE_DISPLAY_NAME ?? 'Mistral Large 3';
+      case 'ollama-local':
+        return modelId;
+    }
+  }
+
   defaultModelFor(backend: BackendId): string {
     switch (backend) {
       case 'anthropic':
