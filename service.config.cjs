@@ -82,6 +82,13 @@ module.exports = {
     // /v1 — because the shim has been known to drop tool-call
     // payloads. The base URL therefore points at the /api root.
     OLLAMA_BASE_URL: 'http://127.0.0.1:11434/api',
+    // Per-request num_ctx sent to Ollama. The model itself can
+    // handle 262144 tokens, but Ollama defaults to a global
+    // num_ctx of 2048 unless told otherwise — which silently
+    // truncates the front of every long prompt. 12288 matches the
+    // empirically-verified vLLM ceiling on this hardware (14B-
+    // class Q4 weights + KV cache on 16 GB VRAM).
+    OLLAMA_NUM_CTX: '12288',
     // ministral-3:14b is the local default; the
     // repairMistralToolCallText middleware (gated on the model id
     // internally) covers the malformed-tool-call cases this model

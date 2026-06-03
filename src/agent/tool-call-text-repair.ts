@@ -10,25 +10,24 @@
  *
  * — as plain text. Ollama's parser doesn't recognise it without the
  * opening sentinel, so the call leaks through as the assistant
- * message body. Vercel AI SDK sees zero tool calls and the agent
- * loop ends with a single empty/garbled turn.
+ * message body.
  *
- * What this middleware does: at every streaming text-end (and on the
- * non-streaming generate path) it inspects the accumulated text
- * against the malformed pattern. On a match, it suppresses the text
- * events and emits a synthetic tool-call sequence instead, then
- * rewrites the upstream `finishReason: 'stop'` to `'tool-calls'` so
- * the surrounding streamText loop continues with the dispatched
- * tool call.
+ * Incremental detection: the middleware only holds back text-delta
+ * events while the accumulated buffer COULD still grow into the
+ * malformed pattern. As soon as the buffer contains a character
+ * that breaks the structural prefix (e.g. a space, a comma, anything
+ * not allowed at that position in `<identifier>[ARGS]{<json>}`), the
+ * middleware flushes everything and switches to passthrough for the
+ * rest of that text block. For a normal answer that starts with
+ * "Ah, " the buffer breaks at the comma and streaming resumes
+ * immediately — total perceived delay is ~one token.
  *
- * Side-effect-free on well-behaved models: when no text block matches
- * the malformed pattern, the original events are flushed as-is.
- *
- * Reusable: the middleware doesn't hard-code which tool names are
- * legal — any identifier-shaped name with parseable JSON args is
- * accepted as a candidate. The tool registry will then either
- * dispatch it normally or report `tool-not-found` to the caller,
- * which is the right error surface either way.
+ * Only when the buffer completes the full malformed pattern (or runs
+ * to text-end with a structural prefix the model never broke) does
+ * the middleware suppress all the buffered text and synthesise a
+ * proper tool-call sequence in its place, then rewrite the finish
+ * reason from 'stop' to 'tool-calls' so the streamText loop continues
+ * with the dispatched call.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -47,7 +46,26 @@ const LOCAL_MINISTRAL = 'ministral-3:14b';
 const TOOL_CALL_TEXT_PATTERN =
   /^\s*([a-zA-Z_][a-zA-Z_0-9]*)\[ARGS\](\{[\s\S]*?\})\s*$/;
 
+// A buffer is "still possibly a malformed tool-call prefix" iff it
+// matches one of the partial-pattern stages below:
+//   <ident>                            — identifier only
+//   <ident>[                           — opened bracket
+//   <ident>[A | [AR | [ARG | [ARGS     — typing the ARGS sentinel
+//   <ident>[ARGS]                      — sentinel closed
+//   <ident>[ARGS]{ | [ARGS]{...        — into the JSON body
+// Anything else means the model has emitted text that can't be the
+// malformed pattern; flush and stream.
+const COULD_STILL_MATCH =
+  /^[a-zA-Z_][a-zA-Z_0-9]*(?:\[(?:A(?:R(?:G(?:S(?:\](?:\{[\s\S]*)?)?)?)?)?)?)?$/;
+
+function couldStillBeMalformedPrefix(buffer: string): boolean {
+  const stripped = buffer.replace(/^\s+/, '');
+  if (stripped.length === 0) return true;
+  return COULD_STILL_MATCH.test(stripped);
+}
+
 interface PendingTextBlock {
+  mode: 'inspecting' | 'passthrough';
   startEvent: LanguageModelV3StreamPart;
   deltas: LanguageModelV3StreamPart[];
   buffer: string;
@@ -71,9 +89,20 @@ function buildMiddleware(): LanguageModelMiddleware {
 
       // Per-text-block state, keyed by the SDK's text-block id. We
       // can in principle see multiple text blocks per turn; each
-      // gets its own buffer + queued events.
+      // gets its own buffer + state.
       const pending = new Map<string, PendingTextBlock>();
       let synthesizedToolCall = false;
+
+      const flushBlock = (
+        block: PendingTextBlock,
+        controller: TransformStreamDefaultController<LanguageModelV3StreamPart>,
+      ): void => {
+        controller.enqueue(block.startEvent);
+        for (const d of block.deltas) controller.enqueue(d);
+        block.mode = 'passthrough';
+        block.deltas = [];
+        block.buffer = '';
+      };
 
       const transform = new TransformStream<
         LanguageModelV3StreamPart,
@@ -82,33 +111,45 @@ function buildMiddleware(): LanguageModelMiddleware {
         transform(chunk, controller) {
           if (chunk.type === 'text-start') {
             pending.set(chunk.id, {
+              mode: 'inspecting',
               startEvent: chunk,
               deltas: [],
               buffer: '',
             });
-            return; // hold the text-start until we know if this block is a malformed call
+            return; // hold the text-start while inspecting
           }
 
           if (chunk.type === 'text-delta') {
             const block = pending.get(chunk.id);
-            if (block) {
-              block.deltas.push(chunk);
-              block.buffer += chunk.delta;
-              return; // hold the delta
+            if (!block || block.mode === 'passthrough') {
+              controller.enqueue(chunk);
+              return;
             }
-            // No matching open block — pass through.
-            controller.enqueue(chunk);
+
+            // Inspecting: append, then decide.
+            block.buffer += chunk.delta;
+            block.deltas.push(chunk);
+
+            if (couldStillBeMalformedPrefix(block.buffer)) {
+              return; // still possibly a malformed call — keep buffering
+            }
+
+            // Predicate failed — this text block is regular prose.
+            // Flush everything and resume streaming.
+            flushBlock(block, controller);
             return;
           }
 
           if (chunk.type === 'text-end') {
             const block = pending.get(chunk.id);
             pending.delete(chunk.id);
-            if (!block) {
+            if (!block || block.mode === 'passthrough') {
               controller.enqueue(chunk);
               return;
             }
 
+            // Still inspecting at text-end — see if the full pattern
+            // matched.
             const match = TOOL_CALL_TEXT_PATTERN.exec(block.buffer);
             if (match) {
               const [, toolName, argsJson] = match;
@@ -136,15 +177,13 @@ function buildMiddleware(): LanguageModelMiddleware {
                   input: argsJson,
                 });
                 synthesizedToolCall = true;
-                // Suppress the buffered text events entirely.
-                return;
+                return; // suppress the buffered text events
               } catch {
-                // JSON malformed — fall through to the pass-through.
+                // JSON malformed — fall through to flush as text.
               }
             }
 
-            // Not a malformed tool call (or args didn't parse) —
-            // flush the buffered text events as-is.
+            // No pattern match — emit as ordinary text.
             controller.enqueue(block.startEvent);
             for (const d of block.deltas) controller.enqueue(d);
             controller.enqueue(chunk);
@@ -152,18 +191,15 @@ function buildMiddleware(): LanguageModelMiddleware {
           }
 
           if (chunk.type === 'finish') {
-            // Flush any still-pending blocks we never saw a text-end
-            // for (defensive — shouldn't happen on conformant providers).
+            // Flush any still-pending inspecting blocks (defensive).
             for (const block of pending.values()) {
-              controller.enqueue(block.startEvent);
-              for (const d of block.deltas) controller.enqueue(d);
+              if (block.mode === 'inspecting') {
+                controller.enqueue(block.startEvent);
+                for (const d of block.deltas) controller.enqueue(d);
+              }
             }
             pending.clear();
 
-            // If we synthesized a tool-call, the upstream said
-            // finishReason.unified='stop' (it saw only text).
-            // Rewrite to 'tool-calls' so streamText continues the
-            // agent loop and dispatches the tool we just synthesized.
             if (
               synthesizedToolCall &&
               chunk.finishReason.unified === 'stop'
@@ -184,10 +220,8 @@ function buildMiddleware(): LanguageModelMiddleware {
           // Any other event (reasoning-*, tool-*, source, file, etc.):
           // pass through, flushing any held text blocks first so
           // ordering is preserved.
-          for (const [id, block] of pending) {
-            controller.enqueue(block.startEvent);
-            for (const d of block.deltas) controller.enqueue(d);
-            pending.delete(id);
+          for (const block of pending.values()) {
+            if (block.mode === 'inspecting') flushBlock(block, controller);
           }
           controller.enqueue(chunk);
         },
