@@ -259,6 +259,17 @@ export class TurnService {
           ? Number(lastSeqRow.max_seq) + 1
           : 1;
 
+      // Strip NUL bytes from every string value reachable through the
+      // message. Postgres TEXT and JSONB both reject   (error
+      // 22025: "unsupported Unicode escape sequence"), and our tool
+      // results occasionally carry one through from Exa's scraped
+      // page text (binary fragments bleeding into HTML extraction).
+      // One null byte anywhere in a 5-call parallel search dispatch
+      // is enough to abort the whole turn, so we sanitize at the
+      // single persistence boundary instead of trusting every tool.
+      const safeContent = stripNullBytes(args.content) as MessageContent;
+      const safeText = stripNullBytesFromString(args.text);
+
       await trx
         .insertInto('messages')
         .values({
@@ -269,8 +280,8 @@ export class TurnService {
           // plain content string would arrive at Postgres unquoted and
           // fail JSON parsing. Stringify explicitly so both shapes
           // (string content / content-parts array) land as valid JSON.
-          content: sql`${JSON.stringify(args.content)}::jsonb`,
-          text: args.text,
+          content: sql`${JSON.stringify(safeContent)}::jsonb`,
+          text: safeText,
           seq: nextSeq,
           metadata: args.metadata
             ? sql`${JSON.stringify(args.metadata)}::jsonb`
@@ -292,6 +303,31 @@ export class TurnService {
       (process.env.AGENT_DEFAULT_BACKEND as Backend | undefined) ?? 'anthropic';
     return { backend: envDefault };
   }
+}
+
+/**
+ * Recursively strip Postgres-forbidden NUL bytes ( ) from every
+ * string reachable inside a value. Walks plain objects + arrays
+ * cheaply (no JSON round-trip). Non-string, non-container values
+ * pass through unchanged. Used at the persistence boundary so a
+ * single binary byte in an Exa search snippet can't crash a whole
+ * agent turn.
+ */
+function stripNullBytes(value: unknown): unknown {
+  if (typeof value === 'string') return stripNullBytesFromString(value);
+  if (Array.isArray(value)) return value.map(stripNullBytes);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = stripNullBytes(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function stripNullBytesFromString(s: string): string {
+  return s.indexOf(' ') === -1 ? s : s.replace(/ /g, '');
 }
 
 /**
