@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Browser } from 'playwright';
 import { z } from 'zod';
+import { PageDeclutterService } from '../declutter.service';
 import { ToolRegistry } from '../tool-registry';
 
 const inputSchema = z.object({
@@ -62,7 +63,10 @@ export class BrowseTool implements OnModuleInit, OnModuleDestroy {
   private browser: Browser | null = null;
   private launchPromise: Promise<Browser> | null = null;
 
-  constructor(private readonly registry: ToolRegistry) {}
+  constructor(
+    private readonly registry: ToolRegistry,
+    private readonly declutter: PageDeclutterService,
+  ) {}
 
   onModuleInit(): void {
     const maxTextLength = Number(process.env.BROWSE_MAX_TEXT_LENGTH ?? '12000');
@@ -137,7 +141,15 @@ export class BrowseTool implements OnModuleInit, OnModuleDestroy {
           await page.waitForTimeout(input.wait_ms ?? 500);
 
           const title = await page.title();
-          const text = await page.evaluate(() => document.body.innerText);
+          const rawText = await page.evaluate(() => document.body.innerText);
+          // Strip navigation / ads / related-article teasers via the
+          // same Haiku pre-filter used by fetch_page. The screenshot
+          // is still delivered raw so vision can see the actual page.
+          const declutterResult = await this.declutter.declutter(
+            rawText,
+            page.url(),
+          );
+          const text = declutterResult.text;
           const truncated = text.length > maxTextLength;
           const textOut = truncated ? text.slice(0, maxTextLength) : text;
 
@@ -164,7 +176,7 @@ export class BrowseTool implements OnModuleInit, OnModuleDestroy {
             title: title || null,
             status,
             text: textOut,
-            text_length: text.length,
+            text_length: rawText.length,
             text_truncated: truncated,
             links,
             screenshot_base64: screenshot.toString('base64'),

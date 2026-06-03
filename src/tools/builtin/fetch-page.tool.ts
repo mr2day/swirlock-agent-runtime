@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import Exa from 'exa-js';
 import { z } from 'zod';
+import { PageDeclutterService } from '../declutter.service';
 import { ToolRegistry } from '../tool-registry';
 
 const inputSchema = z.object({
@@ -35,7 +36,10 @@ export class FetchPageTool implements OnModuleInit {
   private readonly logger = new Logger(FetchPageTool.name);
   private exa: Exa | null = null;
 
-  constructor(private readonly registry: ToolRegistry) {}
+  constructor(
+    private readonly registry: ToolRegistry,
+    private readonly declutter: PageDeclutterService,
+  ) {}
 
   onModuleInit(): void {
     const key = process.env.EXA_API_KEY;
@@ -117,8 +121,18 @@ export class FetchPageTool implements OnModuleInit {
         }
 
         const rawText = (first as { text?: string }).text ?? '';
-        const truncated = rawText.length > maxContentLength;
-        const content = truncated ? rawText.slice(0, maxContentLength) : rawText;
+        // Strip navigation / ads / related-article teasers via a
+        // Haiku pre-filter before the cleaned text ever reaches the
+        // agent's main model. Falls back to raw on any failure.
+        const declutterResult = await this.declutter.declutter(
+          rawText,
+          first.url ?? input.url,
+        );
+        const cleanText = declutterResult.text;
+        const truncated = cleanText.length > maxContentLength;
+        const content = truncated
+          ? cleanText.slice(0, maxContentLength)
+          : cleanText;
 
         return {
           url: first.url ?? input.url,
