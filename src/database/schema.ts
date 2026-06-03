@@ -14,6 +14,8 @@ export type SessionStatus = 'active' | 'archived' | 'deleted';
 
 export type Backend =
   | 'anthropic'
+  | 'anthropic-sonnet'
+  | 'anthropic-opus'
   | 'mistral-online'
   | 'ollama-local';
 

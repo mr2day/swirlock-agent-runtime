@@ -117,11 +117,29 @@ export class AgentLoopService {
           .replace(/\$\{userTimezone\}/g, tz)
       : undefined;
 
+    // Wrap the system prompt as a SystemModelMessage with
+    // Anthropic's `cacheControl: ephemeral` provider option so the
+    // system + tool descriptions get cached across turns. Anthropic
+    // bills cached tokens at ~10% of normal input rate, so a 50-turn
+    // conversation that re-sends 3-5k tokens of stable system/tools
+    // every turn drops dramatically in cost. Other providers ignore
+    // the `anthropic` namespace inside providerOptions, so this is
+    // safe to pass unconditionally.
+    const systemMessage = resolvedSystem
+      ? ({
+          role: 'system' as const,
+          content: resolvedSystem,
+          providerOptions: {
+            anthropic: { cacheControl: { type: 'ephemeral' } },
+          },
+        } as const)
+      : undefined;
+
     let result;
     try {
       result = streamText({
         model,
-        system: resolvedSystem,
+        system: systemMessage,
         messages: input.messages,
         tools: hasTools ? tools : undefined,
         // Two stop conditions, evaluated after each step:

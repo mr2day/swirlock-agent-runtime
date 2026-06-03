@@ -129,9 +129,32 @@ export class TurnService {
         .execute();
     }
 
-    // 2. Build the ModelMessage[] history for the loop.
+    // 2. Build the ModelMessage[] history for the loop, with a
+    // sliding-window cap so token cost doesn't grow linearly with
+    // conversation length. We keep:
+    //   - the very first user message (preserves the original
+    //     framing the model anchored on at turn 1), and
+    //   - the last AGENT_HISTORY_KEEP_LAST_MESSAGES messages
+    //     (default 20: roughly the last 10 user→assistant exchanges,
+    //     including any tool-call / tool-result interleavings).
+    // Anything in between is dropped. The current user's new message
+    // is then appended.
+    const keepLast = Math.max(
+      1,
+      Number(process.env.AGENT_HISTORY_KEEP_LAST_MESSAGES ?? '20'),
+    );
+    const prunedHistory =
+      history.length <= keepLast + 1
+        ? history
+        : (() => {
+            const first = history[0];
+            const tail = history.slice(-keepLast);
+            // Avoid duplicating the first row if it's already in the tail.
+            return tail[0]?.seq === first.seq ? tail : [first, ...tail];
+          })();
+
     const modelMessages: ModelMessage[] = [];
-    for (const m of history) {
+    for (const m of prunedHistory) {
       modelMessages.push(toModelMessage(m.role, m.content));
     }
     modelMessages.push({ role: 'user', content: input.userMessage });

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { tool, type Tool } from 'ai';
+import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import type { z } from 'zod';
 
 /**
@@ -9,12 +10,19 @@ import type { z } from 'zod';
  *
  * `execute` runs in-process; its return value is forwarded to the
  * model as the `tool_result` content for the next loop step.
+ *
+ * `toModelOutput` is optional: when provided, the registry wires it
+ * into the SDK's tool() helper so the raw execute result can be
+ * projected into a multi-part `ToolResultOutput` (e.g. an image-data
+ * part for a screenshot alongside a text part for extracted page
+ * content). Without it the SDK serialises the execute result as JSON.
  */
 export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string;
   description: string;
   inputSchema: z.ZodType<TInput>;
   execute(input: TInput): Promise<TOutput>;
+  toModelOutput?: (output: TOutput) => ToolResultOutput;
 }
 
 /**
@@ -47,10 +55,16 @@ export class ToolRegistry {
   toToolSet(): Record<string, Tool> {
     const set: Record<string, Tool> = {};
     for (const def of this.tools.values()) {
+      const fwd = def.toModelOutput;
+      const passthrough = fwd
+        ? ({ output }: { toolCallId: string; input: unknown; output: unknown }) =>
+            fwd(output as never)
+        : undefined;
       set[def.name] = tool({
         description: def.description,
         inputSchema: def.inputSchema,
         execute: async (input: unknown) => def.execute(input),
+        ...(passthrough ? { toModelOutput: passthrough } : {}),
       }) as Tool;
     }
     return set;

@@ -22,6 +22,9 @@ cd "$(dirname "$0")"
 echo "[deploy] Typecheck + build..."
 npm run build --silent
 
+echo "[deploy] Applying any pending database migrations..."
+npm run db:migrate --silent
+
 echo "[deploy] Running eval harness..."
 npm run eval --silent
 

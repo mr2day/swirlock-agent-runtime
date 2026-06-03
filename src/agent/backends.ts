@@ -5,19 +5,24 @@ import { wrapLanguageModel, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 import { repairMistralToolCallText } from './tool-call-text-repair';
 
-// Three backends we operate against. The orchestrator picks one per
-// turn (default at the session level, optionally overridden by the
-// client on turn.submit).
+// Selectable model entries. Each entry is a (provider, model) pair
+// that the picker renders as a single line in the dropdown. The
+// three Anthropic entries share the same provider but resolve to
+// different model ids — added for testing the quality/cost spread.
 //
-//   anthropic       — Anthropic API, Haiku 4.5 by default
-//   mistral-online  — Mistral La Plateforme, Ministral 14B by default
-//   ollama-local    — local Ollama (ministral-3:14b by default) wired
-//                     via ollama-ai-provider-v2 against Ollama's
-//                     native /api/chat endpoint. NOT the OpenAI-
-//                     compat shim — the native path preserves tool
-//                     calls that the shim sometimes drops.
+//   anthropic         — Anthropic API, Haiku 4.5 (cheap, fast default)
+//   anthropic-sonnet  — Anthropic API, Sonnet 4.6 (mid-tier)
+//   anthropic-opus    — Anthropic API, Opus 4.7 (smartest, most expensive)
+//   mistral-online    — Mistral La Plateforme, Ministral 14B
+//   ollama-local      — local Ollama (ministral-3:14b by default) wired
+//                       via ollama-ai-provider-v2 against Ollama's
+//                       native /api/chat endpoint. NOT the OpenAI-
+//                       compat shim — the native path preserves tool
+//                       calls that the shim sometimes drops.
 export type BackendId =
   | 'anthropic'
+  | 'anthropic-sonnet'
+  | 'anthropic-opus'
   | 'mistral-online'
   | 'ollama-local';
 
@@ -73,6 +78,8 @@ export class BackendsService {
     const model = choice.model ?? this.defaultModelFor(backend);
     switch (backend) {
       case 'anthropic':
+      case 'anthropic-sonnet':
+      case 'anthropic-opus':
         return this.anthropicFactory(model);
       case 'mistral-online':
         if (!this.mistralOnlineFactory) {
@@ -124,13 +131,19 @@ export class BackendsService {
     // model swap on the runtime side surfaces immediately without a
     // UI redeploy.
     if (process.env.ANTHROPIC_API_KEY) {
-      const modelId = this.defaultModelFor('anthropic');
-      list.push({
-        name: 'anthropic',
-        displayName: modelId,
-        defaultModelId: modelId,
-        location: 'cloud',
-      });
+      // Three Anthropic entries — same provider, three different
+      // model ids — so the user can pick smarter-but-pricier on a
+      // per-session basis without us hardcoding which one the
+      // chatbot uses.
+      for (const name of ['anthropic', 'anthropic-sonnet', 'anthropic-opus'] as const) {
+        const modelId = this.defaultModelFor(name);
+        list.push({
+          name,
+          displayName: modelId,
+          defaultModelId: modelId,
+          location: 'cloud',
+        });
+      }
     }
     if (this.mistralOnlineFactory) {
       const modelId = this.defaultModelFor('mistral-online');
@@ -169,6 +182,8 @@ export class BackendsService {
     const v = process.env.AGENT_DEFAULT_BACKEND as BackendId | undefined;
     if (
       v === 'anthropic' ||
+      v === 'anthropic-sonnet' ||
+      v === 'anthropic-opus' ||
       v === 'mistral-online' ||
       v === 'ollama-local'
     ) {
@@ -190,6 +205,10 @@ export class BackendsService {
         return (
           process.env.ANTHROPIC_DEFAULT_MODEL ?? 'claude-haiku-4-5-20251001'
         );
+      case 'anthropic-sonnet':
+        return process.env.ANTHROPIC_SONNET_MODEL ?? 'claude-sonnet-4-6';
+      case 'anthropic-opus':
+        return process.env.ANTHROPIC_OPUS_MODEL ?? 'claude-opus-4-7';
       case 'mistral-online':
         return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
       case 'ollama-local':
