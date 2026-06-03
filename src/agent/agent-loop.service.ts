@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { stepCountIs, streamText, type ToolSet } from 'ai';
 import { BackendsService } from './backends';
+import { TurnContextService } from '../runtime/turn-context.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import type { AgentEvent, AgentTurnInput } from './agent.types';
 
@@ -25,9 +26,26 @@ export class AgentLoopService {
   constructor(
     private readonly backends: BackendsService,
     private readonly toolRegistry: ToolRegistry,
+    private readonly turnContext: TurnContextService,
   ) {}
 
   async *run(input: AgentTurnInput): AsyncGenerator<AgentEvent> {
+    // Set the turn context for any tool that wants to route its
+    // internal model calls by the active backend family (e.g.
+    // PageDeclutterService picks Anthropic Haiku vs Ministral 14B
+    // vs the same local Ollama model based on this). AsyncLocalStorage
+    // propagates the context through every await inside streamText's
+    // tool-call dispatch.
+    const innerGenerator = this.turnContext.run(
+      { backend: input.backend.backend, model: input.backend.model },
+      () => this.runInner(input),
+    );
+    for await (const evt of innerGenerator) {
+      yield evt;
+    }
+  }
+
+  private async *runInner(input: AgentTurnInput): AsyncGenerator<AgentEvent> {
     const turnId = input.turnId ?? randomUUID();
     const maxSteps =
       input.maxSteps ?? Number(process.env.AGENT_MAX_STEPS ?? '8');

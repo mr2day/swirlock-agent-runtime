@@ -6,14 +6,17 @@ import { createOllama } from 'ollama-ai-provider-v2';
 import { repairMistralToolCallText } from './tool-call-text-repair';
 
 // Selectable model entries. Each entry is a (provider, model) pair
-// that the picker renders as a single line in the dropdown. The
-// three Anthropic entries share the same provider but resolve to
-// different model ids — added for testing the quality/cost spread.
+// that the picker renders as a single line in the dropdown. Provider
+// families bunch into tiers so the user can pick smarter-vs-cheaper
+// on a per-session basis without us hardcoding which one the
+// chatbot uses.
 //
-//   anthropic         — Anthropic API, Haiku 4.5 (cheap, fast default)
+//   anthropic         — Anthropic API, Haiku 4.5 (cheap, fast)
 //   anthropic-sonnet  — Anthropic API, Sonnet 4.6 (mid-tier)
 //   anthropic-opus    — Anthropic API, Opus 4.7 (smartest, most expensive)
-//   mistral-online    — Mistral La Plateforme, Ministral 14B
+//   mistral-online    — Mistral La Plateforme, Ministral 14B (cheap)
+//   mistral-medium    — Mistral La Plateforme, Mistral Medium (mid)
+//   mistral-large     — Mistral La Plateforme, Mistral Large (top)
 //   ollama-local      — local Ollama (ministral-3:14b by default) wired
 //                       via ollama-ai-provider-v2 against Ollama's
 //                       native /api/chat endpoint. NOT the OpenAI-
@@ -24,6 +27,8 @@ export type BackendId =
   | 'anthropic-sonnet'
   | 'anthropic-opus'
   | 'mistral-online'
+  | 'mistral-medium'
+  | 'mistral-large'
   | 'ollama-local';
 
 export interface BackendChoice {
@@ -107,9 +112,11 @@ export class BackendsService {
       case 'anthropic-opus':
         return this.anthropicFactory(model);
       case 'mistral-online':
+      case 'mistral-medium':
+      case 'mistral-large':
         if (!this.mistralOnlineFactory) {
           throw new Error(
-            'mistral-online backend selected but MISTRAL_API_KEY is not set',
+            `${backend} backend selected but MISTRAL_API_KEY is not set`,
           );
         }
         return this.mistralOnlineFactory(model);
@@ -201,13 +208,22 @@ export class BackendsService {
       }
     }
     if (this.mistralOnlineFactory) {
-      const modelId = this.defaultModelFor('mistral-online');
-      list.push({
-        name: 'mistral-online',
-        displayName: modelId,
-        defaultModelId: modelId,
-        location: 'cloud',
-      });
+      // Same provider, three model tiers — Ministral 14B (cheap),
+      // Mistral Medium (mid), Mistral Large (top). Mirrors the
+      // Anthropic shape so the picker reads as a uniform grid.
+      for (const name of [
+        'mistral-online',
+        'mistral-medium',
+        'mistral-large',
+      ] as const) {
+        const modelId = this.defaultModelFor(name);
+        list.push({
+          name,
+          displayName: modelId,
+          defaultModelId: modelId,
+          location: 'cloud',
+        });
+      }
     }
 
     const ollamaUp = await probeOllama(
@@ -240,6 +256,8 @@ export class BackendsService {
       v === 'anthropic-sonnet' ||
       v === 'anthropic-opus' ||
       v === 'mistral-online' ||
+      v === 'mistral-medium' ||
+      v === 'mistral-large' ||
       v === 'ollama-local'
     ) {
       return v;
@@ -266,6 +284,10 @@ export class BackendsService {
         return process.env.ANTHROPIC_OPUS_MODEL ?? 'claude-opus-4-7';
       case 'mistral-online':
         return process.env.MISTRAL_DEFAULT_MODEL ?? 'ministral-14b-latest';
+      case 'mistral-medium':
+        return process.env.MISTRAL_MEDIUM_MODEL ?? 'mistral-medium-latest';
+      case 'mistral-large':
+        return process.env.MISTRAL_LARGE_MODEL ?? 'mistral-large-latest';
       case 'ollama-local':
         return process.env.OLLAMA_DEFAULT_MODEL ?? 'ministral-3:14b';
     }

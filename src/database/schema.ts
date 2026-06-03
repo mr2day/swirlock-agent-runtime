@@ -17,6 +17,8 @@ export type Backend =
   | 'anthropic-sonnet'
   | 'anthropic-opus'
   | 'mistral-online'
+  | 'mistral-medium'
+  | 'mistral-large'
   | 'ollama-local';
 
 export interface SessionsTable {
