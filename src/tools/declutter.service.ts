@@ -3,7 +3,7 @@ import { createMistral } from '@ai-sdk/mistral';
 import { Injectable, Logger } from '@nestjs/common';
 import { generateText, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
-import type { BackendId } from '../agent/backends';
+import { providerOptionsForBackend, type BackendId } from '../agent/backends';
 import { TurnContextService } from '../runtime/turn-context.service';
 
 /**
@@ -134,6 +134,9 @@ export class PageDeclutterService {
         system: SYSTEM_PROMPT,
         prompt: this.buildUserPrompt(input, sourceUrl),
         maxOutputTokens: this.maxOutputTokens,
+        providerOptions: providerOptionsForBackend(
+          this.turnContext.current()?.backend ?? 'anthropic',
+        ),
       });
       const cleaned = result.text.trim();
       if (cleaned.length === 0) {

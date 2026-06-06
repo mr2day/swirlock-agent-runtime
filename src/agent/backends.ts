@@ -1,5 +1,6 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import { Injectable, Logger } from '@nestjs/common';
 import { wrapLanguageModel, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
@@ -77,6 +78,32 @@ function readAllowedSubs(envName: string): Set<string> {
   );
 }
 
+/**
+ * Free-function form of `BackendsService.providerOptionsFor`, exported
+ * so tool-side services (declutter, reranker, compactor) can use it
+ * without injecting BackendsService — which would otherwise create a
+ * ToolsModule → AgentModule → ToolsModule DI cycle. The logic reads
+ * directly from `process.env`, so the env vars are still the single
+ * source of truth.
+ */
+export function providerOptionsForBackend(
+  backend: BackendId,
+): ProviderOptions {
+  switch (backend) {
+    case 'ollama-local': {
+      const numCtx = Number(process.env.OLLAMA_NUM_CTX ?? '12288');
+      return { ollama: { options: { num_ctx: numCtx } } };
+    }
+    case 'anthropic':
+    case 'anthropic-sonnet':
+    case 'anthropic-opus':
+    case 'mistral-online':
+    case 'mistral-medium':
+    case 'mistral-large':
+      return {};
+  }
+}
+
 @Injectable()
 export class BackendsService {
   private readonly logger = new Logger(BackendsService.name);
@@ -121,18 +148,15 @@ export class BackendsService {
         }
         return this.mistralOnlineFactory(model);
       case 'ollama-local': {
-        // Tell Ollama to load this model with a num_ctx of
-        // OLLAMA_NUM_CTX (default 12288). Ollama's default global
-        // num_ctx is only 4096, which is dwarfed by our system prompt
-        // + tool descriptions + tool results, causing the front of
-        // long prompts to be silently truncated. 12288 is the
-        // empirically-verified ceiling for a 14B-class Q4 model on
-        // 16 GB VRAM — at this context the weights + KV cache + CUDA
-        // workspace fit comfortably, leaving headroom for the OS.
-        const numCtx = Number(process.env.OLLAMA_NUM_CTX ?? '12288');
-        const baseModel = this.ollamaFactory.chat(model, {
-          options: { num_ctx: numCtx },
-        });
+        // num_ctx is passed at the streamText / generateText call
+        // site via `providerOptions: { ollama: { options: {...} } }`,
+        // not as a chat() factory setting — `ollama-ai-provider-v2`
+        // wires its `chat` export to `createLanguageModel(modelId)`,
+        // which discards a second argument. See providerOptionsFor()
+        // below. Without that, Ollama loads the model with its global
+        // default num_ctx of 4096 and silently truncates everything
+        // longer.
+        const baseModel = this.ollamaFactory.chat(model);
         const middleware = repairMistralToolCallText(model);
         return middleware
           ? wrapLanguageModel({ model: baseModel, middleware })
@@ -272,6 +296,22 @@ export class BackendsService {
    * override is set), and by AgentLoopService for turn-accepted
    * attribution. Env-overridable at every backend.
    */
+  /**
+   * Per-backend provider options to attach to streamText / generateText
+   * / generateObject calls. Anthropic gets the `cacheControl: ephemeral`
+   * hint here for the system message (set by AgentLoopService on the
+   * system msg itself, separate from this); Ollama gets the `num_ctx`
+   * configuration here at the request level — which is the only path
+   * ollama-ai-provider-v2 actually forwards to Ollama's /api/chat.
+   *
+   * Returns `{}` for backends with no per-request provider options.
+   * Callers merge this with whatever else they're passing in
+   * `providerOptions`.
+   */
+  providerOptionsFor(backend: BackendId): ProviderOptions {
+    return providerOptionsForBackend(backend);
+  }
+
   /**
    * Human-readable label for the model the picker / attribution line
    * should show. The raw provider ID (`claude-opus-4-7`,

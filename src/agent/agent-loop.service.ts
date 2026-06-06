@@ -170,6 +170,13 @@ export class AgentLoopService {
           repeatCondition,
         ],
         maxOutputTokens,
+        // Per-backend request-level options. Critically, this is the
+        // only path ollama-ai-provider-v2 actually forwards through
+        // to Ollama's /api/chat — passing num_ctx as a factory
+        // setting on `chat(model, settings)` is silently dropped.
+        providerOptions: this.backends.providerOptionsFor(
+          input.backend.backend,
+        ),
         abortSignal: input.abortSignal,
       });
     } catch (err) {

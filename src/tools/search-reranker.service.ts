@@ -4,7 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { generateObject, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 import { z } from 'zod';
-import type { BackendId } from '../agent/backends';
+import { providerOptionsForBackend, type BackendId } from '../agent/backends';
 import { TurnContextService } from '../runtime/turn-context.service';
 
 /**
@@ -122,6 +122,9 @@ export class SearchRerankerService {
         system: SYSTEM_PROMPT,
         prompt: this.buildPrompt(query, candidates),
         maxOutputTokens: 200,
+        providerOptions: providerOptionsForBackend(
+          this.turnContext.current()?.backend ?? 'anthropic',
+        ),
       });
 
       const seen = new Set<number>();

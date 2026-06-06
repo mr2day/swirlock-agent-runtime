@@ -4,7 +4,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { generateText, type LanguageModel } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 import { sql } from 'kysely';
-import type { BackendId } from '../agent/backends';
+import { providerOptionsForBackend, type BackendId } from '../agent/backends';
 import { DatabaseService } from '../database/database.service';
 import type { MessageContent } from '../database/schema';
 import { ContextWindowService } from './context-window.service';
@@ -218,7 +218,7 @@ export class CompactorService {
     const startSeq = slice[0].seq;
     const endSeq = slice[slice.length - 1].seq;
     const transcript = slice.map((m) => m.transcriptLine).join('\n\n');
-    const summaryText = await this.summarise(resolved.model, transcript);
+    const summaryText = await this.summarise(resolved.model, transcript, backend);
     if (!summaryText) {
       this.logger.warn(
         `compactor: empty summary for session=${sessionId} seqs=${startSeq}-${endSeq}, skipping`,
@@ -272,6 +272,7 @@ export class CompactorService {
   private async summarise(
     model: LanguageModel,
     transcript: string,
+    backend: BackendId,
   ): Promise<string | null> {
     try {
       const result = await generateText({
@@ -279,6 +280,7 @@ export class CompactorService {
         system: SUMMARY_SYSTEM_PROMPT,
         prompt: `Conversation transcript:\n\n${transcript}\n\nWrite the summary in the original language of the conversation. No preamble.`,
         maxOutputTokens: Number(process.env.COMPACTION_MAX_SUMMARY_TOKENS ?? '1500'),
+        providerOptions: providerOptionsForBackend(backend),
       });
       const text = result.text.trim();
       return text.length > 0 ? text : null;
